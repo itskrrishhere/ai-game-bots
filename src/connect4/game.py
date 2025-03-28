@@ -1,11 +1,13 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import random
+import copy
 
-#Reference - https://github.com/KeithGalli/Connect4-Python/tree/master
+# Reference - https://github.com/KeithGalli/Connect4-Python/tree/master
 class Connect4Game:
     def __init__(self):
         self.board = np.full((6, 7), ' ')
-        self.current_player = 'X'
+        self.current_player = 'X'  # Human is X; default opponent is O.
         self.game_over = False
         self.winning_cells = []  # Store winning positions
         self.fig, self.ax = plt.subplots()
@@ -58,30 +60,108 @@ class Connect4Game:
         if col not in self.get_valid_moves():
             return
 
-        # Drop the disc in the correct row
-        for row in range(5, -1, -1):
-            if self.board[row, col] == ' ':
-                self.board[row, col] = self.current_player
-                break
+        # Drop the disc in the correct row for human (X)
+        drop_row = self.get_drop_row(col)
+        if drop_row is not None:
+            self.board[drop_row, col] = self.current_player
 
-        # Check for winner
+        # Check for winner after human move
         winner, cells = self.check_winner(self.current_player)
         if winner:
             self.game_over = True
             self.winning_cells = cells
         elif np.all(self.board != ' '):  # Check for draw if board is full
-            self.game_over = True  # It's a draw
-            self.winning_cells = []  # No winning cells for a draw
-
-        if not self.game_over:
-            self.current_player = 'O' if self.current_player == 'X' else 'X'
+            self.game_over = True
+            self.winning_cells = []
 
         self.draw_board()
 
+        # If game is still not over, let the default opponent (O) move
+        if not self.game_over:
+            self.default_opponent_move()
+            # Check for winner after opponent move
+            winner, cells = self.check_winner(self.current_player)
+            if winner:
+                self.game_over = True
+                self.winning_cells = cells
+            elif np.all(self.board != ' '):
+                self.game_over = True
+                self.winning_cells = []
+            else:
+                # Set turn back to human (X)
+                self.current_player = 'X'
+            self.draw_board()
+
     def get_valid_moves(self):
+        # A move is valid if the top cell of the column is empty.
         return [col for col in range(7) if self.board[0, col] == ' ']
 
+    def get_drop_row(self, col):
+        # Return the lowest empty row in the given column (None if column is full)
+        for row in range(5, -1, -1):
+            if self.board[row, col] == ' ':
+                return row
+        return None
+
+    def default_opponent_move(self):
+        # Opponent is 'O'
+        valid_moves = self.get_valid_moves()
+
+        # Rule 1: Try to find a winning move for O.
+        for col in valid_moves:
+            row = self.get_drop_row(col)
+            if row is not None:
+                temp_board = copy.deepcopy(self.board)
+                temp_board[row, col] = 'O'
+                if self.simulated_check_winner(temp_board, 'O'):
+                    self.board[row, col] = 'O'
+                    self.current_player = 'O'
+                    return
+
+        # Rule 2: Block any immediate winning move for X.
+        for col in valid_moves:
+            row = self.get_drop_row(col)
+            if row is not None:
+                temp_board = copy.deepcopy(self.board)
+                temp_board[row, col] = 'X'
+                if self.simulated_check_winner(temp_board, 'X'):
+                    self.board[row, col] = 'O'
+                    self.current_player = 'O'
+                    return
+
+        # Rule 3: No immediate win or block found; choose a random valid move.
+        col = random.choice(valid_moves)
+        row = self.get_drop_row(col)
+        if row is not None:
+            self.board[row, col] = 'O'
+            self.current_player = 'O'
+
+    def simulated_check_winner(self, board, player):
+        # A simplified check_winner using a temporary board.
+        for row in range(6):
+            for col in range(7):
+                if (cells := self.simulated_check_line(board, row, col, 1, 0, player)) or \
+                        (cells := self.simulated_check_line(board, row, col, 0, 1, player)) or \
+                        (cells := self.simulated_check_line(board, row, col, 1, 1, player)) or \
+                        (cells := self.simulated_check_line(board, row, col, 1, -1, player)):
+                    return True
+        return False
+
+    def simulated_check_line(self, board, row, col, d_row, d_col, player):
+        cells = []
+        for i in range(4):
+            r = row + i * d_row
+            c = col + i * d_col
+            # Check bounds: rows must be 0 to 5 and cols 0 to 6.
+            if r < 0 or r >= 6 or c < 0 or c >= 7:
+                return []
+            cells.append((r, c))
+        if all(board[r, c] == player for r, c in cells):
+            return cells
+        return []
+
     def check_winner(self, player):
+        # Use the current board to check for a win.
         for row in range(6):
             for col in range(7):
                 if (cells := self.check_line(row, col, 1, 0, player)) or \
@@ -96,9 +176,9 @@ class Connect4Game:
         for i in range(4):
             r = row + i * d_row
             c = col + i * d_col
-            # Check bounds: rows must be 0 to 5 and cols 0 to 6
+            # Check bounds: rows must be 0 to 5 and cols 0 to 6.
             if r < 0 or r >= 6 or c < 0 or c >= 7:
-                return []  # Out of bounds, no valid winning line here
+                return []
             cells.append((r, c))
         if all(self.board[r, c] == player for r, c in cells):
             return cells
