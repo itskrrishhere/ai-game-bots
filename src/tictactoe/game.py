@@ -1,130 +1,233 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import random
+import copy
+import math
 
-# Reference: https://en.wikipedia.org/wiki/Tic-tac-toe
+# -----------------------------
+# Helper functions for Tic Tac Toe
+# -----------------------------
+
+def get_valid_moves(board):
+    moves = []
+    for i in range(3):
+        for j in range(3):
+            if board[i, j] == ' ':
+                moves.append((i, j))
+    return moves
+
+def check_winner(board, player):
+    # Check rows and columns
+    for i in range(3):
+        if all(board[i, j] == player for j in range(3)):
+            return True, [(i, j) for j in range(3)]
+        if all(board[j, i] == player for j in range(3)):
+            return True, [(j, i) for j in range(3)]
+    # Check main diagonal
+    if all(board[i, i] == player for i in range(3)):
+        return True, [(i, i) for i in range(3)]
+    # Check anti-diagonal
+    if all(board[i, 2 - i] == player for i in range(3)):
+        return True, [(i, 2 - i) for i in range(3)]
+    return False, []
+
+def is_draw(board):
+    return np.all(board != ' ')
+
+def evaluate(board):
+    # Evaluation from the perspective of 'X'
+    winX, _ = check_winner(board, 'X')
+    winO, _ = check_winner(board, 'O')
+    if winX:
+        return 1
+    elif winO:
+        return -1
+    else:
+        return 0
+
+# -----------------------------
+# Minimax Algorithms
+# -----------------------------
+
+def minimax(board, depth, maximizing, use_alpha_beta=False, alpha=-math.inf, beta=math.inf):
+    terminal, _ = check_winner(board, 'X')
+    if terminal or check_winner(board, 'O')[0] or is_draw(board):
+        return evaluate(board)
+
+    moves = get_valid_moves(board)
+
+    if maximizing:
+        best_score = -math.inf
+        for move in moves:
+            new_board = board.copy()
+            new_board[move[0], move[1]] = 'X'
+            score = minimax(new_board, depth + 1, False, use_alpha_beta, alpha, beta)
+            best_score = max(best_score, score)
+            if use_alpha_beta:
+                alpha = max(alpha, best_score)
+                if beta <= alpha:
+                    break
+        return best_score
+    else:
+        best_score = math.inf
+        for move in moves:
+            new_board = board.copy()
+            new_board[move[0], move[1]] = 'O'
+            score = minimax(new_board, depth + 1, True, use_alpha_beta, alpha, beta)
+            best_score = min(best_score, score)
+            if use_alpha_beta:
+                beta = min(beta, best_score)
+                if beta <= alpha:
+                    break
+        return best_score
+
+def get_best_move_minimax(board, use_alpha_beta=False):
+    moves = get_valid_moves(board)
+    best_move = None
+    if board is None or len(moves) == 0:
+        return best_move
+
+    # Algorithm agent is 'X', maximizing player
+    best_score = -math.inf
+    for move in moves:
+        new_board = board.copy()
+        new_board[move[0], move[1]] = 'X'
+        score = minimax(new_board, 0, False, use_alpha_beta)
+        if score > best_score:
+            best_score = score
+            best_move = move
+    return best_move
+
+# -----------------------------
+# Q-Learning stub (for demonstration)
+# -----------------------------
+def get_best_move_qlearning(board):
+    # In a full Q-learning implementation, one would use a learned Q-table.
+    # Here we simply return a random valid move as a placeholder.
+    moves = get_valid_moves(board)
+    if moves:
+        return random.choice(moves)
+    return None
+
+# -----------------------------
+# Default Opponent (rules-based)
+# -----------------------------
+def default_opponent_move(board):
+    # Opponent is 'O'
+    moves = get_valid_moves(board)
+    # Rule 1: Winning move for O.
+    for move in moves:
+        temp_board = board.copy()
+        temp_board[move[0], move[1]] = 'O'
+        if check_winner(temp_board, 'O')[0]:
+            return move
+    # Rule 2: Block winning move for X.
+    for move in moves:
+        temp_board = board.copy()
+        temp_board[move[0], move[1]] = 'X'
+        if check_winner(temp_board, 'X')[0]:
+            return move
+    # Rule 3: Otherwise, choose a random move.
+    return random.choice(moves)
+
+# -----------------------------
+# TicTacToeGame Simulation (Algorithm vs Default Opponent)
+# -----------------------------
 class TicTacToeGame:
-    def __init__(self):
+    def __init__(self, algorithm_choice):
+        # algorithm_choice: 1 = minimax (no AB), 2 = minimax with AB, 3 = Q-learning (stub)
+        self.algorithm_choice = algorithm_choice
         self.board = np.full((3, 3), ' ')
-        self.current_player = 'X'  # Human is X; default opponent is O
         self.game_over = False
         self.winning_cells = []  # Stores winning positions
-        self.fig, self.ax = plt.subplots()
+        self.current_player = 'X'  # Algorithm agent always plays as X; opponent is O.
+        self.play_game()
+
+    def play_game(self):
+        while not self.game_over:
+            if self.current_player == 'X':
+                # Algorithm agent move
+                move = self.algorithm_move()
+                if move is None:
+                    break  # No move available
+                self.board[move[0], move[1]] = 'X'
+                win, cells = check_winner(self.board, 'X')
+                if win:
+                    self.game_over = True
+                    self.winning_cells = cells
+                elif is_draw(self.board):
+                    self.game_over = True
+                else:
+                    self.current_player = 'O'
+            else:
+                # Default opponent move
+                move = default_opponent_move(self.board)
+                if move is None:
+                    break
+                self.board[move[0], move[1]] = 'O'
+                win, cells = check_winner(self.board, 'O')
+                if win:
+                    self.game_over = True
+                    self.winning_cells = cells
+                elif is_draw(self.board):
+                    self.game_over = True
+                else:
+                    self.current_player = 'X'
         self.draw_board()
-        self.fig.canvas.mpl_connect('button_press_event', self.on_click)
-        plt.show()
+
+    def algorithm_move(self):
+        if self.algorithm_choice == 1:
+            # Use Minimax without alpha-beta pruning
+            return get_best_move_minimax(self.board, use_alpha_beta=False)
+        elif self.algorithm_choice == 2:
+            # Use Minimax with alpha-beta pruning
+            return get_best_move_minimax(self.board, use_alpha_beta=True)
+        elif self.algorithm_choice == 3:
+            # Use Q-Learning (stub)
+            return get_best_move_qlearning(self.board)
+        else:
+            # Fallback to random move if invalid choice
+            moves = get_valid_moves(self.board)
+            return random.choice(moves) if moves else None
 
     def draw_board(self):
-        self.ax.clear()
-        self.ax.set_xticks([0.5, 1.5, 2.5], minor=True)
-        self.ax.set_yticks([0.5, 1.5, 2.5], minor=True)
-        self.ax.grid(which='minor', color='black', linestyle='-', linewidth=2)
-        self.ax.set_xticks([])
-        self.ax.set_yticks([])
+        # Visualize the final board using Matplotlib
+        fig, ax = plt.subplots()
+        ax.set_xticks([0.5, 1.5, 2.5], minor=True)
+        ax.set_yticks([0.5, 1.5, 2.5], minor=True)
+        ax.grid(which='minor', color='black', linestyle='-', linewidth=2)
+        ax.set_xticks([])
+        ax.set_yticks([])
 
-        # Draw each cell with its value. Winning cells are highlighted.
         for i in range(3):
             for j in range(3):
                 color = 'black'
                 if (i, j) in self.winning_cells:
                     color = 'green'
-                self.ax.text(j, 2 - i, self.board[i, j], fontsize=40, ha='center', va='center', color=color)
+                ax.text(j, 2 - i, self.board[i, j], fontsize=40, ha='center', va='center', color=color)
 
-        # Title displays whose turn it is or the final outcome.
         if self.game_over:
             if self.winning_cells:
-                self.fig.suptitle(f"Player {self.current_player} Wins!", fontsize=16)
+                fig.suptitle(f"Winner: { 'X' if check_winner(self.board, 'X')[0] else 'O' }", fontsize=16)
             else:
-                self.fig.suptitle("It's a Draw!", fontsize=16)
-        else:
-            self.fig.suptitle(f"Player {self.current_player}'s Turn", fontsize=16)
+                fig.suptitle("Draw!", fontsize=16)
+        ax.set_xlim(-0.5, 2.5)
+        ax.set_ylim(-0.5, 2.5)
+        plt.show()
 
-        self.ax.set_xlim(-0.5, 2.5)
-        self.ax.set_ylim(-0.5, 2.5)
-        plt.draw()
+# -----------------------------
+# Main Program
+# -----------------------------
+def main():
+    print("Choose algorithm to play as X (Algorithm Agent) vs Default Opponent (O):")
+    print("1: Minimax without alpha-beta pruning")
+    print("2: Minimax with alpha-beta pruning")
+    print("3: Tabular Q-learning (stub)")
+    choice = input("Enter your choice (1/2/3): ").strip()
+    if choice not in ['1', '2', '3']:
+        print("Invalid choice, defaulting to random (Q-learning stub).")
+        choice = '3'
+    TicTacToeGame(int(choice))
 
-    def on_click(self, event):
-        # Human move only if game is not over and coordinates are valid.
-        if self.game_over or event.xdata is None or event.ydata is None:
-            return
-
-        col = int(round(event.xdata))
-        row = int(round(2 - event.ydata))
-
-        # Validate move
-        if 0 <= row < 3 and 0 <= col < 3 and self.board[row, col] == ' ':
-            self.board[row, col] = 'X'  # Human is 'X'
-            winner, cells = self.check_winner('X')
-            if winner:
-                self.game_over = True
-                self.winning_cells = cells
-            elif np.all(self.board != ' '):  # Check draw
-                self.game_over = True
-                self.winning_cells = []
-            self.draw_board()
-
-            # If game is still not over, let default opponent (O) make a move.
-            if not self.game_over:
-                self.default_opponent_move()
-                # After opponent move, check for win/draw.
-                winner, cells = self.check_winner('O')
-                if winner:
-                    self.game_over = True
-                    self.winning_cells = cells
-                elif np.all(self.board != ' '):
-                    self.game_over = True
-                    self.winning_cells = []
-                else:
-                    # Switch turn back to human.
-                    self.current_player = 'X'
-                self.draw_board()
-
-    def default_opponent_move(self):
-        """Default opponent's move based on the rules."""
-        # Opponent is 'O'
-        valid_moves = [(i, j) for i in range(3) for j in range(3) if self.board[i, j] == ' ']
-
-        # Rule 1: If a winning move is available, take it.
-        for move in valid_moves:
-            i, j = move
-            self.board[i, j] = 'O'
-            win, _ = self.check_winner('O')
-            if win:
-                self.current_player = 'O'
-                return
-            self.board[i, j] = ' '  # Revert move
-
-        # Rule 2: Block opponent's (X) winning move.
-        for move in valid_moves:
-            i, j = move
-            self.board[i, j] = 'X'
-            win, _ = self.check_winner('X')
-            if win:
-                self.board[i, j] = 'O'  # Block move
-                self.current_player = 'O'
-                return
-            self.board[i, j] = ' '  # Revert move
-
-        # Rule 3: No immediate win or block; pick a random move.
-        move = random.choice(valid_moves)
-        i, j = move
-        self.board[i, j] = 'O'
-        self.current_player = 'O'
-
-    def check_winner(self, player):
-        # Check rows and columns
-        for i in range(3):
-            if all(self.board[i, j] == player for j in range(3)):
-                return True, [(i, j) for j in range(3)]
-            if all(self.board[j, i] == player for j in range(3)):
-                return True, [(j, i) for j in range(3)]
-        # Check main diagonal
-        if all(self.board[i, i] == player for i in range(3)):
-            return True, [(i, i) for i in range(3)]
-        # Check anti-diagonal
-        if all(self.board[i, 2 - i] == player for i in range(3)):
-            return True, [(i, 2 - i) for i in range(3)]
-        return False, []
-
-# Run the game
-TicTacToeGame()
+if __name__ == "__main__":
+    main()
