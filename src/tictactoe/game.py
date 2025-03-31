@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.animation as animation
 import random
 import copy
 import math
@@ -131,7 +132,7 @@ def default_opponent_move(board):
     return random.choice(moves)
 
 # -----------------------------
-# TicTacToeGame Simulation (Algorithm vs Default Opponent)
+# TicTacToeGame Simulation (Algorithm vs Default Opponent) with Animation
 # -----------------------------
 class TicTacToeGame:
     def __init__(self, algorithm_choice):
@@ -139,11 +140,19 @@ class TicTacToeGame:
         self.algorithm_choice = algorithm_choice
         self.board = np.full((3, 3), ' ')
         self.game_over = False
-        self.winning_cells = []  # Stores winning positions
+        self.winning_cells = []  # Stores winning positions for final state
         self.current_player = 'X'  # Algorithm agent always plays as X; opponent is O.
+        # List to store board states (deep copies) for animation
+        self.frames = []
+        # Also store the player who moved in each frame for annotation purposes
+        self.moves_info = []
         self.play_game()
 
     def play_game(self):
+        # Store the initial board state
+        self.frames.append(self.board.copy())
+        self.moves_info.append("Game start")
+
         while not self.game_over:
             if self.current_player == 'X':
                 # Algorithm agent move
@@ -151,6 +160,8 @@ class TicTacToeGame:
                 if move is None:
                     break  # No move available
                 self.board[move[0], move[1]] = 'X'
+                self.moves_info.append("X moved to " + str(move))
+                self.frames.append(self.board.copy())
                 win, cells = check_winner(self.board, 'X')
                 if win:
                     self.game_over = True
@@ -165,6 +176,8 @@ class TicTacToeGame:
                 if move is None:
                     break
                 self.board[move[0], move[1]] = 'O'
+                self.moves_info.append("O moved to " + str(move))
+                self.frames.append(self.board.copy())
                 win, cells = check_winner(self.board, 'O')
                 if win:
                     self.game_over = True
@@ -173,7 +186,14 @@ class TicTacToeGame:
                     self.game_over = True
                 else:
                     self.current_player = 'X'
-        self.draw_board()
+        # Final frame annotation for win/draw
+        if self.winning_cells:
+            winner = 'X' if check_winner(self.board, 'X')[0] else 'O'
+            self.moves_info.append(f"Winner: {winner}")
+        else:
+            self.moves_info.append("Draw!")
+        # After game over, animate the play
+        self.animate_game()
 
     def algorithm_move(self):
         if self.algorithm_choice == 1:
@@ -190,30 +210,61 @@ class TicTacToeGame:
             moves = get_valid_moves(self.board)
             return random.choice(moves) if moves else None
 
-    def draw_board(self):
-        # Visualize the final board using Matplotlib
-        fig, ax = plt.subplots()
+    def draw_board(self, ax, board, highlight_cells=None, title=""):
+        ax.clear()
+        # Set up grid
         ax.set_xticks([0.5, 1.5, 2.5], minor=True)
         ax.set_yticks([0.5, 1.5, 2.5], minor=True)
         ax.grid(which='minor', color='black', linestyle='-', linewidth=2)
         ax.set_xticks([])
         ax.set_yticks([])
-
+        # Draw X and O
         for i in range(3):
             for j in range(3):
                 color = 'black'
-                if (i, j) in self.winning_cells:
+                if highlight_cells and (i, j) in highlight_cells:
                     color = 'green'
-                ax.text(j, 2 - i, self.board[i, j], fontsize=40, ha='center', va='center', color=color)
-
-        if self.game_over:
-            if self.winning_cells:
-                fig.suptitle(f"Winner: { 'X' if check_winner(self.board, 'X')[0] else 'O' }", fontsize=16)
-            else:
-                fig.suptitle("Draw!", fontsize=16)
+                ax.text(j, 2 - i, board[i, j], fontsize=40, ha='center', va='center', color=color)
         ax.set_xlim(-0.5, 2.5)
         ax.set_ylim(-0.5, 2.5)
+        ax.set_title(title, fontsize=16)
+
+    def animate_game(self):
+        fig, ax = plt.subplots()
+
+        # Map algorithm_choice to algorithm names
+        algorithm_names = {
+            1: "Minimax without alpha-beta pruning",
+            2: "Minimax with alpha-beta pruning",
+            3: "Tabular Q-learning (stub)"
+        }
+
+        def update(frame):
+            board_state = self.frames[frame]
+            # Highlight winning cells only on the final frame
+            highlight = self.winning_cells if (frame == len(self.frames) - 1 and self.winning_cells) else None
+            title = self.moves_info[frame] if frame < len(self.moves_info) else ""
+
+            # For the final frame, update the figure's suptitle to show the game result
+            if frame == len(self.frames) - 1:
+                if self.winning_cells:
+                    # Determine the winner based on the board state
+                    if check_winner(board_state, 'X')[0]:
+                        winner_name = algorithm_names.get(self.algorithm_choice, "Algorithm")
+                    else:
+                        winner_name = "Default Opponent"
+                    fig.suptitle(f"Winner: {winner_name}", fontsize=16)
+                else:
+                    fig.suptitle("Draw!", fontsize=16)
+            else:
+                # Clear suptitle for intermediate frames
+                fig.suptitle("")
+            self.draw_board(ax, board_state, highlight_cells=highlight, title=title)
+            return ax
+
+        ani = animation.FuncAnimation(fig, update, frames=len(self.frames), interval=1000, repeat=False)
         plt.show()
+
 
 # -----------------------------
 # Main Program

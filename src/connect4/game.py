@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.animation as animation
 import random
 import copy
 import math
@@ -143,7 +144,7 @@ def default_opponent_move_connect4(board):
     return random.choice(valid_moves) if valid_moves else None
 
 # ---------------------------
-# Connect4Game Simulation (Algorithm Agent vs Default Opponent)
+# Connect4Game Simulation (Algorithm Agent vs Default Opponent) with Animation
 # ---------------------------
 class Connect4GameSim:
     def __init__(self, algorithm_choice):
@@ -153,9 +154,16 @@ class Connect4GameSim:
         self.game_over = False
         self.winning_cells = []  # Will store winning cells (if any)
         self.current_player = 'X'  # Algorithm agent is 'X'; default opponent is 'O'
+        # Lists to store board states and move info for animation
+        self.frames = []
+        self.moves_info = []
         self.play_game()
 
     def play_game(self):
+        # Store the initial state.
+        self.frames.append(self.board.copy())
+        self.moves_info.append("Game start")
+
         while not self.game_over:
             if self.current_player == 'X':
                 # Algorithm agent move
@@ -164,6 +172,8 @@ class Connect4GameSim:
                     break
                 row = get_drop_row_sim(self.board, move)
                 self.board[row, move] = 'X'
+                self.moves_info.append(f"Algorithm Agent (X) moved to column {move}")
+                self.frames.append(self.board.copy())
                 if check_winner_sim(self.board, 'X'):
                     self.game_over = True
                     self.winning_cells = self.get_winning_cells('X')
@@ -178,6 +188,8 @@ class Connect4GameSim:
                     break
                 row = get_drop_row_sim(self.board, move)
                 self.board[row, move] = 'O'
+                self.moves_info.append(f"Default Opponent (O) moved to column {move}")
+                self.frames.append(self.board.copy())
                 if check_winner_sim(self.board, 'O'):
                     self.game_over = True
                     self.winning_cells = self.get_winning_cells('O')
@@ -185,7 +197,17 @@ class Connect4GameSim:
                     self.game_over = True
                 else:
                     self.current_player = 'X'
-        self.draw_board()
+        # Append final move info (win/draw)
+        if self.winning_cells:
+            if check_winner_sim(self.board, 'X'):
+                winner = self.get_algorithm_name()
+            else:
+                winner = "Default Opponent"
+            self.moves_info.append(f"Winner: {winner}")
+        else:
+            self.moves_info.append("Draw!")
+        # Animate the game after finishing
+        self.animate_game()
 
     def algorithm_move(self):
         if self.algorithm_choice == 1:
@@ -201,6 +223,15 @@ class Connect4GameSim:
             moves = get_valid_moves_sim(self.board)
             return random.choice(moves) if moves else None
 
+    def get_algorithm_name(self):
+        # Map algorithm choice to a human-readable name
+        algorithm_names = {
+            1: "Minimax without alpha-beta pruning",
+            2: "Minimax with alpha-beta pruning",
+            3: "Tabular Q-learning (stub)"
+        }
+        return algorithm_names.get(self.algorithm_choice, "Algorithm Agent")
+
     def get_winning_cells(self, player):
         # Retrieve winning cells by checking all positions.
         for row in range(6):
@@ -213,36 +244,61 @@ class Connect4GameSim:
                     return cells
         return []
 
-    def draw_board(self):
-        fig, ax = plt.subplots()
+    def draw_board_ax(self, ax, board, highlight_cells=None, title=""):
+        ax.clear()
+        # Setup the board's grid and background.
         ax.set_xticks(range(7))
         ax.set_yticks(range(6))
         ax.set_xticklabels([])
         ax.set_yticklabels([])
         ax.set_facecolor('blue')
-        ax.grid(True, linestyle='', linewidth=2, color='black')
-
+        # Draw the Connect4 board circles.
         for i in range(6):
             for j in range(7):
                 color = 'white'
-                if self.board[i, j] == 'X':
+                if board[i, j] == 'X':
                     color = 'red'
-                elif self.board[i, j] == 'O':
+                elif board[i, j] == 'O':
                     color = 'yellow'
                 circle = plt.Circle((j, 5 - i), 0.4, fc=color, edgecolor='black')
                 ax.add_patch(circle)
-                if (i, j) in self.winning_cells:
+                # Highlight winning cells in the final frame.
+                if highlight_cells and (i, j) in highlight_cells:
                     highlight = plt.Circle((j, 5 - i), 0.45, fc='none', edgecolor='white', linewidth=4)
                     ax.add_patch(highlight)
-        if self.game_over:
-            if self.winning_cells:
-                fig.suptitle(f"Winner: { 'X' if check_winner_sim(self.board, 'X') else 'O' }", fontsize=16)
-            else:
-                fig.suptitle("Draw!", fontsize=16)
-        else:
-            fig.suptitle(f"Turn: {self.current_player}", fontsize=16)
         ax.set_xlim(-0.5, 6.5)
         ax.set_ylim(-0.5, 5.5)
+        ax.set_title(title, fontsize=16)
+
+    def animate_game(self):
+        fig, ax = plt.subplots()
+        # Map algorithm names for final display.
+        algorithm_names = {
+            1: "Minimax without alpha-beta pruning",
+            2: "Minimax with alpha-beta pruning",
+            3: "Tabular Q-learning (stub)"
+        }
+
+        def update(frame):
+            board_state = self.frames[frame]
+            # Use move info if available
+            title = self.moves_info[frame] if frame < len(self.moves_info) else ""
+            # In final frame, highlight winning cells and display the winner.
+            if frame == len(self.frames) - 1:
+                if self.winning_cells:
+                    if check_winner_sim(board_state, 'X'):
+                        winner_name = algorithm_names.get(self.algorithm_choice, "Algorithm Agent")
+                    else:
+                        winner_name = "Default Opponent"
+                    fig.suptitle(f"Winner: {winner_name}", fontsize=16)
+                else:
+                    fig.suptitle("Draw!", fontsize=16)
+            else:
+                fig.suptitle("")
+            self.draw_board_ax(ax, board_state, highlight_cells=self.winning_cells if frame == len(self.frames) - 1 else None, title=title)
+            return ax
+
+        ani = animation.FuncAnimation(fig, update, frames=len(self.frames), interval=1000, repeat=False)
         plt.show()
 
 # ---------------------------
@@ -255,9 +311,9 @@ def main():
     print("3: Tabular Q-learning (stub)")
     choice = input("Enter your choice (1/2/3): ").strip()
     if choice not in ['1', '2', '3']:
-        print("Invalid choice, defaulting to Q-learning stub (random).")
+        print("Invalid choice, defaulting to Tabular Q-learning (stub).")
         choice = '3'
-    game = Connect4GameSim(int(choice))
+    Connect4GameSim(int(choice))
 
 if __name__ == "__main__":
     main()
