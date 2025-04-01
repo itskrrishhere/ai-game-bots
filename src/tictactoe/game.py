@@ -389,13 +389,14 @@ def simulate_games(algorithm_x, algorithm_o, num_games=100):
 # -----------------------------
 def startUp():
     # Pre-train both Q-learning agents
+    num_episodes = 10000
     global q_learning_agent_X, q_learning_agent_O
     q_learning_agent_X = QLearningAgent('X')
     q_learning_agent_O = QLearningAgent('O')
     print("Training Q-learning agent for X...")
-    q_learning_agent_X.train(num_episodes=10000)
+    q_learning_agent_X.train(num_episodes=num_episodes)
     print("Training Q-learning agent for O...")
-    q_learning_agent_O.train(num_episodes=10000)
+    q_learning_agent_O.train(num_episodes=num_episodes)
 
     print("Choose simulation (1: Run a single animated game, 2: run batch(20) simulations)")
     sim_choice = int(input().strip())
@@ -407,73 +408,72 @@ def startUp():
         choice_o = int(input().strip())
         TicTacToeGame(choice_x, choice_o, animate=True)
     else:
-        # To run simulations and print results
-        results = {}
-        simulation_games = 20  # Number of games per pairing
-        pair_labels = []
-        x_wins_list = []
-        o_wins_list = []
-        draws_list = []
+        for sim_count in [20, 40, 60, 80]:
+            # To run simulations and print results
+            results = {}
+            simulation_games = sim_count  # Number of games per pairing
+            pair_labels = []
+            x_wins_list = []
+            o_wins_list = []
+            draws_list = []
 
-        # Simulate distinct pairings (choice_x from 1 to 3 and choice_o from choice_x+1 to 4)
-        for choice_x in [1, 2, 3, 4]:
-            for choice_o in [1, 2, 3, 4]:
-                if choice_x == choice_o:
-                    continue
-                x_algo = get_algorithm_name(choice_x)
-                o_algo = get_algorithm_name(choice_o)
-                print(f"Simulating {x_algo} (X) vs {o_algo} (O) for {simulation_games} games...")
-                x_wins, o_wins, draws = simulate_games(choice_x, choice_o, simulation_games)
-                results[(x_algo, o_algo)] = (x_wins, o_wins, draws)
-                pair_labels.append(f"{x_algo} vs {o_algo}")
-                x_wins_list.append(x_wins)
-                o_wins_list.append(o_wins)
-                draws_list.append(draws)
-                print("Results:")
-                print(f"{x_algo} (X) wins: {x_wins}")
-                print(f"{o_algo} (O) wins: {o_wins}")
-                print(f"Draws: {draws}")
-                print("------")
+            # Simulate distinct pairings (choice_x from 1 to 3 and choice_o from choice_x+1 to 4)
+            for choice_x in range(1, 4):
+                for choice_o in range(choice_x + 1, 5):
+                    x_algo = get_algorithm_name(choice_x)
+                    o_algo = get_algorithm_name(choice_o)
+                    print(f"Simulating {x_algo} (X) vs {o_algo} (O) for {simulation_games} games...")
+                    x_wins, o_wins, draws = simulate_games(choice_x, choice_o, simulation_games)
+                    results[(x_algo, o_algo)] = (x_wins, o_wins, draws)
+                    pair_labels.append(f"{x_algo} vs {o_algo}")
+                    x_wins_list.append(x_wins)
+                    o_wins_list.append(o_wins)
+                    draws_list.append(draws)
+                    print("Results:")
+                    print(f"{x_algo} (X) wins: {x_wins}")
+                    print(f"{o_algo} (O) wins: {o_wins}")
+                    print(f"Draws: {draws}")
+                    print("------")
 
-        # Tabulate results
-        print("\nFinal Results Tabulation:")
-        # Define CSV filename
-        csv_filename = "tictactoe_results.csv"
+            # Tabulate results
+            print("\nFinal Results Tabulation:")
+            # Define CSV filename
+            csv_filename = f"tictactoe_results_{sim_count}.csv"
 
-        # Write to CSV
-        with open(csv_filename, mode='w', newline='') as csvfile:
-            writer = csv.writer(csvfile)
+            # Write to CSV
+            with open(csv_filename, mode='w', newline='') as csvfile:
+                writer = csv.writer(csvfile)
 
-            # Write header
-            writer.writerow(["Pairing", "X Wins", "O Wins", "Draws"])
+                # Write header
+                writer.writerow(["Pairing", "X Wins", "O Wins", "Draws"])
 
-            # Write data rows
-            for pair, (x_wins, o_wins, draws) in results.items():
-                pairing = f"{pair[0]} vs {pair[1]}"
-                print("{:<20} {:<10} {:<10} {:<10}".format(pairing, x_wins, o_wins, draws))
-                writer.writerow([pairing, x_wins, o_wins, draws])
+                # Write data rows
+                for pair, (x_wins, o_wins, draws) in results.items():
+                    pairing = f"{pair[0]} vs {pair[1]}"
+                    print("{:<20} {:<10} {:<10} {:<10}".format(pairing, x_wins, o_wins, draws))
+                    writer.writerow([pairing, x_wins, o_wins, draws])
 
-        print(f"\nResults saved to {csv_filename}")
+            print(f"\nResults saved to {csv_filename}")
 
-        # Create a grouped bar chart for the results
-        labels = pair_labels
-        x = np.arange(len(labels))
-        width = 0.25
+            # Create a grouped bar chart for the results
+            labels = pair_labels
+            x = np.arange(len(labels))
+            width = 0.25
 
-        fig, ax = plt.subplots()
-        rects1 = ax.bar(x - width, x_wins_list, width, label='X wins')
-        rects2 = ax.bar(x, o_wins_list, width, label='O wins')
-        rects3 = ax.bar(x + width, draws_list, width, label='Draws')
+            fig, ax = plt.subplots()
+            rects1 = ax.bar(x - width, x_wins_list, width, label='X wins')
+            rects2 = ax.bar(x, o_wins_list, width, label='O wins')
+            rects3 = ax.bar(x + width, draws_list, width, label='Draws')
 
-        ax.set_ylabel('Number of Wins/Draws')
-        ax.set_title('Simulation Results by Pairing')
-        ax.set_xticks(x)
-        ax.set_xticklabels(labels, rotation=45, ha='right')
-        ax.legend()
+            ax.set_ylabel('Number of Wins/Draws')
+            ax.set_title('Simulation Results by Pairing')
+            ax.set_xticks(x)
+            ax.set_xticklabels(labels, rotation=45, ha='right')
+            ax.legend()
 
-        fig.tight_layout()
-        plt.savefig("tictactoe_final.png")
-        plt.close()
+            fig.tight_layout()
+            plt.savefig(f"tictactoe_graph{sim_count}.png")
+            plt.close()
 
 if __name__ == "__main__":
     startUp()
