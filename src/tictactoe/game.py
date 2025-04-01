@@ -1,10 +1,8 @@
 import csv
-
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 import random
-import copy
 import math
 from collections import defaultdict
 
@@ -418,8 +416,10 @@ def startUp():
         draws_list = []
 
         # Simulate distinct pairings (choice_x from 1 to 3 and choice_o from choice_x+1 to 4)
-        for choice_x in range(1, 4):
-            for choice_o in range(choice_x + 1, 5):
+        for choice_x in [1, 2, 3, 4]:
+            for choice_o in [1, 2, 3, 4]:
+                if choice_x == choice_o:
+                    continue
                 x_algo = get_algorithm_name(choice_x)
                 o_algo = get_algorithm_name(choice_o)
                 print(f"Simulating {x_algo} (X) vs {o_algo} (O) for {simulation_games} games...")

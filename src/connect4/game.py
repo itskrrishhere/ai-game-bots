@@ -4,6 +4,7 @@ import matplotlib.animation as animation
 import random
 import copy
 import math
+import csv
 from collections import defaultdict
 
 # ---------------------------
@@ -66,7 +67,7 @@ def is_draw(board):
     return np.all(board != ' ')
 
 def evaluate(board):
-    # Simple evaluation: high positive if 'X' wins, high negative if 'O' wins, else 0.
+    # Evaluation function for non-terminal states (used at depth limit)
     if check_winner(board, 'X'):
         return 1000
     elif check_winner(board, 'O'):
@@ -75,23 +76,28 @@ def evaluate(board):
         return 0
 
 # ---------------------------
-# Minimax Algorithms for Connect4
+# Role-Agnostic Minimax for Connect4 (Player Bias Fix)
 # ---------------------------
-def minimax(board, depth, maximizing, use_alpha_beta=False, alpha=-math.inf, beta=math.inf, depth_limit=4):
-    # Terminal conditions: win/loss, draw, or depth limit reached.
-    if check_winner(board, 'X') or check_winner(board, 'O') or is_draw(board) or depth == depth_limit:
+def minimax(board, current_player, origin, use_alpha_beta=False, alpha=-math.inf, beta=math.inf, depth=0, depth_limit=4):
+    opponent = 'O' if origin == 'X' else 'X'
+    # Terminal condition: win/loss/draw or depth limit reached.
+    if check_winner(board, origin):
+        return 1000 - depth  # Sooner win is better
+    elif check_winner(board, opponent):
+        return -1000 + depth  # Delay loss if possible
+    elif is_draw(board) or depth == depth_limit:
         return evaluate(board)
 
     valid_moves = get_valid_moves(board)
-    if maximizing:
+    if current_player == origin:
         best_score = -math.inf
         for col in valid_moves:
             row = get_drop_row(board, col)
             if row is None:
                 continue
             new_board = board.copy()
-            new_board[row, col] = 'X'
-            score = minimax(new_board, depth + 1, False, use_alpha_beta, alpha, beta, depth_limit)
+            new_board[row, col] = current_player
+            score = minimax(new_board, opponent, origin, use_alpha_beta, alpha, beta, depth + 1, depth_limit)
             best_score = max(best_score, score)
             if use_alpha_beta:
                 alpha = max(alpha, best_score)
@@ -105,8 +111,8 @@ def minimax(board, depth, maximizing, use_alpha_beta=False, alpha=-math.inf, bet
             if row is None:
                 continue
             new_board = board.copy()
-            new_board[row, col] = 'O'
-            score = minimax(new_board, depth + 1, True, use_alpha_beta, alpha, beta, depth_limit)
+            new_board[row, col] = current_player
+            score = minimax(new_board, origin, origin, use_alpha_beta, alpha, beta, depth + 1, depth_limit)
             best_score = min(best_score, score)
             if use_alpha_beta:
                 beta = min(beta, best_score)
@@ -119,8 +125,7 @@ def get_best_move_minimax(board, player, use_alpha_beta=False, depth_limit=4):
     best_move = None
     if not valid_moves:
         return None
-    maximizing = (player == 'X')
-    best_score = -math.inf if maximizing else math.inf
+    best_score = -math.inf if player == 'X' else math.inf
 
     for col in valid_moves:
         row = get_drop_row(board, col)
@@ -128,22 +133,27 @@ def get_best_move_minimax(board, player, use_alpha_beta=False, depth_limit=4):
             continue
         new_board = board.copy()
         new_board[row, col] = player
-        score = minimax(new_board, 0, not maximizing, use_alpha_beta, -math.inf, math.inf, depth_limit)
-        if (maximizing and score > best_score) or (not maximizing and score < best_score):
+        opponent = 'O' if player == 'X' else 'X'
+        score = minimax(new_board, opponent, player, use_alpha_beta, -math.inf, math.inf, 0, depth_limit)
+        if (player == 'X' and score > best_score) or (player == 'O' and score < best_score):
             best_score = score
             best_move = col
     return best_move
 
 # ---------------------------
-# Q-Learning for Connect4
+# Q-Learning for Connect4 with Previous State/Action Update
 # ---------------------------
 class QLearningAgentConnect4:
-    def __init__(self, alpha=0.5, gamma=0.99, epsilon=0.1, decay_factor=0.9999):
+    def __init__(self, alpha=0.5, gamma=0.99, epsilon=0.1, decay_factor=0.9999, player='X'):
         self.q_table = defaultdict(float)
         self.alpha = alpha
         self.gamma = gamma
         self.epsilon = epsilon
         self.decay_factor = decay_factor
+        self.player = player
+        # For handling previous state/action updates to mitigate bias:
+        self.prev_state = None
+        self.prev_action = None
 
     def get_state_key(self, board):
         return tuple(map(tuple, board))
@@ -153,15 +163,12 @@ class QLearningAgentConnect4:
 
     def update_q_value(self, state, action, reward, next_state):
         current_q = self.get_q_value(state, action)
-        valid_moves = get_valid_moves(np.array(next_state))
-        if not valid_moves:
-            next_max_q = 0.0
-        else:
-            next_max_q = max([self.get_q_value(next_state, a) for a in valid_moves])
+        valid_moves = get_valid_moves(np.array(next_state)) if next_state is not None else []
+        next_max_q = max([self.get_q_value(next_state, a) for a in valid_moves] or [0.0])
         new_q = current_q + self.alpha * (reward + self.gamma * next_max_q - current_q)
         self.q_table[(state, action)] = new_q
 
-    def choose_action(self, board, player, training=True):
+    def choose_action(self, board, training=True):
         state = self.get_state_key(board)
         valid_moves = get_valid_moves(board)
         if not valid_moves:
@@ -177,81 +184,92 @@ class QLearningAgentConnect4:
     def train(self, num_episodes=10000):
         for episode in range(num_episodes):
             board = np.full((6, 7), ' ')
-            current_player = 'X'  # Q-learning agent plays as X.
+            current_player = self.player  # our agent's turn
             state = self.get_state_key(board)
+            self.prev_state = None
+            self.prev_action = None
             done = False
+            opponent = 'O' if self.player == 'X' else 'X'
 
             while not done:
-                if current_player == 'X':
-                    # Count opponent's immediate winning moves before our move.
-                    opponent = 'O'
+                if current_player == self.player:
+                    # Compute pre-move block potential
                     pre_block = count_winning_moves(board, opponent)
 
-                    action = self.choose_action(board, 'X', training=True)
+                    action = self.choose_action(board, training=True)
                     if action is None:
                         break
                     row = get_drop_row(board, action)
-                    board[row, action] = 'X'
-
-                    # Count opponent's immediate winning moves after our move.
-                    post_block = count_winning_moves(board, opponent)
-
-                    # Compute block reward: positive if we reduced the opponent's winning moves.
-                    block_reward = 0.1 * (pre_block - post_block)
-
+                    board[row, action] = self.player
                     next_state = self.get_state_key(board)
-                    if check_winner(board, 'X'):
-                        reward = 1 + block_reward  # win reward plus bonus for any block achieved
+
+                    # Terminal condition checks
+                    if check_winner(board, self.player):
+                        reward = 1
                         done = True
                     elif is_draw(board):
-                        reward = 0 + block_reward  # draw with any block bonus
+                        reward = 0
                         done = True
                     else:
-                        reward = block_reward  # intermediate reward based solely on blocking
+                        # Compute post-move block potential
+                        post_block = count_winning_moves(board, opponent)
+                        reward = 0.1 * (pre_block - post_block)
                         done = False
 
-                    self.update_q_value(state, action, reward, next_state)
+                    # Update Q-value for previous move (if exists)
+                    if self.prev_state is not None and self.prev_action is not None:
+                        self.update_q_value(self.prev_state, self.prev_action, reward, next_state)
+                    self.prev_state = state
+                    self.prev_action = action
                     state = next_state
-                    current_player = 'O'
+                    current_player = opponent  # switch turn
+
                 else:
-                    action = get_default_move(board, 'O')
+                    # Opponent's move: use default strategy
+                    action = get_default_move(board, opponent)
                     if action is None:
                         break
                     row = get_drop_row(board, action)
-                    board[row, action] = 'O'
-                    if check_winner(board, 'O'):
+                    board[row, action] = opponent
+                    if check_winner(board, opponent):
                         reward = -1
                         done = True
-                        self.update_q_value(state, action, reward, self.get_state_key(board))
+                        self.update_q_value(state, self.prev_action, reward, self.get_state_key(board))
                     elif is_draw(board):
                         reward = 0
                         done = True
                     else:
                         done = False
-                    current_player = 'X'
+                    current_player = self.player
+
             self.epsilon = max(0.01, self.epsilon * self.decay_factor)
             if (episode + 1) % 1000 == 0:
-                print(f"Q-Learning Connect4 Episode {episode + 1}/{num_episodes}, Epsilon: {self.epsilon:.4f}")
+                print(f"Q-Learning Connect4 Agent ({self.player}) Episode {episode + 1}/{num_episodes}, Epsilon: {self.epsilon:.4f}")
 
-q_learning_agent_connect4 = None
+# Use separate agents for X and O to avoid bias.
+q_learning_agent_connect4_X = None
+q_learning_agent_connect4_O = None
 
 def get_best_move_qlearning(board, player):
-    global q_learning_agent_connect4
-    if q_learning_agent_connect4 is None:
-        q_learning_agent_connect4 = QLearningAgentConnect4()
-        print("Training Q-learning agent for Connect4. This may take a few minutes...")
-        q_learning_agent_connect4.train(num_episodes=10000)
-    valid_moves = get_valid_moves(board)
-    if not valid_moves:
-        return None
-    action = q_learning_agent_connect4.choose_action(board, player, training=False)
-    return action
+    global q_learning_agent_connect4_X, q_learning_agent_connect4_O
+    if player == 'X':
+        if q_learning_agent_connect4_X is None:
+            q_learning_agent_connect4_X = QLearningAgentConnect4(player='X')
+            print("Training Q-learning agent for Connect4 as X...")
+            q_learning_agent_connect4_X.train(num_episodes=10000)
+        return q_learning_agent_connect4_X.choose_action(board, training=False)
+    else:
+        if q_learning_agent_connect4_O is None:
+            q_learning_agent_connect4_O = QLearningAgentConnect4(player='O')
+            print("Training Q-learning agent for Connect4 as O...")
+            q_learning_agent_connect4_O.train(num_episodes=10000)
+        return q_learning_agent_connect4_O.choose_action(board, training=False)
 
 # ---------------------------
 # Default Opponent
 # ---------------------------
 def get_default_move(board, player):
-    # The default opponent: if a winning move exists, take it; else block opponent; else random.
+    # Default opponent: if winning move exists, take it; else block; else random.
     opponent = 'X' if player == 'O' else 'O'
     moves = get_valid_moves(board)
     for move in moves:
@@ -269,7 +287,7 @@ def get_default_move(board, player):
     return random.choice(moves) if moves else None
 
 # ---------------------------
-# Connect4Game Simulation
+# Connect4Game Simulation with Animation and CSV Logging
 # ---------------------------
 class Connect4Game:
     def __init__(self, algorithm_x, algorithm_o, animate=True):
@@ -342,7 +360,6 @@ class Connect4Game:
             return random.choice(moves) if moves else None
 
     def get_winning_cells(self, player):
-        # Find and return the winning line (if any)
         for row in range(6):
             for col in range(7):
                 cells = (check_line(self.board, row, col, 1, 0, player) or
@@ -390,7 +407,7 @@ class Connect4Game:
 # ---------------------------
 # Simulation for Connect4
 # ---------------------------
-def simulate_games(algorithm_x, algorithm_o, num_games=100):
+def simulate_games(algorithm_x, algorithm_o, num_games=20):
     x_wins = 0
     o_wins = 0
     draws = 0
@@ -408,32 +425,35 @@ def simulate_games(algorithm_x, algorithm_o, num_games=100):
 # Main Program
 # ---------------------------
 def startUp():
-    global q_learning_agent_connect4
-    q_learning_agent_connect4 = QLearningAgentConnect4()
-    print("Training Q-learning agent for Connect4...")
-    q_learning_agent_connect4.train(num_episodes=10000)
+    # Pre-train Q-learning agents for both players
+    global q_learning_agent_connect4_X, q_learning_agent_connect4_O
+    q_learning_agent_connect4_X = QLearningAgentConnect4(player='X')
+    q_learning_agent_connect4_O = QLearningAgentConnect4(player='O')
+    print("Training Q-learning agent for Connect4 as X...")
+    q_learning_agent_connect4_X.train(num_episodes=10000)
+    print("Training Q-learning agent for Connect4 as O...")
+    q_learning_agent_connect4_O.train(num_episodes=10000)
 
-    print("Choose simulation (1: Run a single animated game, 2: run batch(20) simulations)")
+    print("Choose simulation (1: Run a single animated game, 2: Run batch simulations)")
     sim_choice = int(input().strip())
     if sim_choice == 1:
-        # To run a single animated game:
         print("Choose algorithm for X (1: Minimax, 2: Minimax+AB, 3: Q-learning, 4: Default): ")
         choice_x = int(input().strip())
         print("Choose algorithm for O (1: Minimax, 2: Minimax+AB, 3: Q-learning, 4: Default): ")
         choice_o = int(input().strip())
         Connect4Game(choice_x, choice_o, animate=True)
     else:
-        # Run simulations and graph results
         results = {}
-        simulation_games = 20  # Increase this for statistically significant results
+        simulation_games = 20  # Number of games per pairing
         pair_labels = []
         x_wins_list = []
         o_wins_list = []
         draws_list = []
 
-        # Simulate distinct pairings (algorithm choices from 1 to 3 for X and from algorithm_x+1 to 4 for O)
-        for choice_x in range(1, 4):
-            for choice_o in range(choice_x + 1, 5):
+        for choice_x in [1, 2, 3, 4]:
+            for choice_o in [1, 2, 3, 4]:
+                if choice_x == choice_o:
+                    continue
                 x_algo = get_algorithm_name(choice_x)
                 o_algo = get_algorithm_name(choice_o)
                 print(f"Simulating {x_algo} (X) vs {o_algo} (O) for {simulation_games} games...")
@@ -443,36 +463,42 @@ def startUp():
                 x_wins_list.append(x_wins)
                 o_wins_list.append(o_wins)
                 draws_list.append(draws)
-                print(f"Results:")
+                print("Results:")
                 print(f"{x_algo} (X) wins: {x_wins}")
                 print(f"{o_algo} (O) wins: {o_wins}")
                 print(f"Draws: {draws}")
                 print("------")
 
-        # Tabulate results.
-        print("\nFinal Results Tabulation:")
-        print("{:<20} {:<10} {:<10} {:<10}".format("Pairing", "X wins", "O wins", "Draws"))
-        for pair, (x_wins, o_wins, draws) in results.items():
-            print("{:<20} {:<10} {:<10} {:<10}".format(f"{pair[0]} vs {pair[1]}", x_wins, o_wins, draws))
+        csv_filename = "connect4_results.csv"
+        with open(csv_filename, mode='w', newline='') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(["Pairing", "X Wins", "O Wins", "Draws"])
+            for pair, (x_wins, o_wins, draws) in results.items():
+                pairing = f"{pair[0]} vs {pair[1]}"
+                print("{:<20} {:<10} {:<10} {:<10}".format(pairing, x_wins, o_wins, draws))
+                writer.writerow([pairing, x_wins, o_wins, draws])
+        print(f"\nResults saved to {csv_filename}")
 
-        # Create a grouped bar chart for the results.
         labels = pair_labels
-        x = np.arange(len(labels))
+        x_axis = np.arange(len(labels))
         width = 0.25
 
         fig, ax = plt.subplots()
-        rects1 = ax.bar(x - width, x_wins_list, width, label='X wins')
-        rects2 = ax.bar(x, o_wins_list, width, label='O wins')
-        rects3 = ax.bar(x + width, draws_list, width, label='Draws')
+        rects1 = ax.bar(x_axis - width, x_wins_list, width, label='X wins')
+        rects2 = ax.bar(x_axis, o_wins_list, width, label='O wins')
+        rects3 = ax.bar(x_axis + width, draws_list, width, label='Draws')
 
         ax.set_ylabel('Number of Wins/Draws')
         ax.set_title('Connect4 Simulation Results by Pairing')
-        ax.set_xticks(x)
+        ax.set_xticks(x_axis)
         ax.set_xticklabels(labels, rotation=45, ha='right')
         ax.legend()
 
         fig.tight_layout()
-        plt.show()
+        png_filename = "connect4_final.png"
+        plt.savefig(png_filename)
+        print(f"Grouped bar chart saved as {png_filename}")
+        plt.close()
 
 if __name__ == "__main__":
     startUp()
