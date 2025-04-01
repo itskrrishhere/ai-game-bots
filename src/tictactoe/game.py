@@ -1,3 +1,5 @@
+import csv
+
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
@@ -5,7 +7,6 @@ import random
 import copy
 import math
 from collections import defaultdict
-
 
 # -----------------------------
 # Helper functions for Tic Tac Toe
@@ -17,7 +18,6 @@ def get_algorithm_name(choice):
     }
     return algorithm_names.get(choice, "Unknown Algorithm")
 
-
 def get_valid_moves(board):
     moves = []
     for i in range(3):
@@ -25,7 +25,6 @@ def get_valid_moves(board):
             if board[i, j] == ' ':
                 moves.append((i, j))
     return moves
-
 
 def check_winner(board, player):
     # Check rows and columns
@@ -42,39 +41,34 @@ def check_winner(board, player):
         return True, [(i, 2 - i) for i in range(3)]
     return False, []
 
-
 def is_draw(board):
     return np.all(board != ' ')
 
-
-def evaluate(board):
-    winX, _ = check_winner(board, 'X')
-    winO, _ = check_winner(board, 'O')
-    if winX:
-        return 1
-    elif winO:
-        return -1
-    else:
-        return 0
-
-
 # -----------------------------
-# Minimax Algorithms
+# Minimax Algorithms (Role-Agnostic)
 # -----------------------------
-
-def minimax(board, depth, maximizing, use_alpha_beta=False, alpha=-math.inf, beta=math.inf):
-    terminal, _ = check_winner(board, 'X')
-    if terminal or check_winner(board, 'O')[0] or is_draw(board):
-        return evaluate(board)
+def minimax(board, current_player, origin, use_alpha_beta=False, alpha=-math.inf, beta=math.inf):
+    # Terminal condition: if board is finished, evaluate from origin's perspective.
+    win_origin, _ = check_winner(board, origin)
+    opponent = 'O' if origin == 'X' else 'X'
+    win_opp, _ = check_winner(board, opponent)
+    if win_origin or win_opp or is_draw(board):
+        if win_origin:
+            return 1
+        elif win_opp:
+            return -1
+        else:
+            return 0
 
     moves = get_valid_moves(board)
 
-    if maximizing:
+    if current_player == origin:
         best_score = -math.inf
         for move in moves:
             new_board = board.copy()
-            new_board[move[0], move[1]] = 'X'
-            score = minimax(new_board, depth + 1, False, use_alpha_beta, alpha, beta)
+            new_board[move[0], move[1]] = current_player
+            next_player = opponent if current_player == origin else origin
+            score = minimax(new_board, next_player, origin, use_alpha_beta, alpha, beta)
             best_score = max(best_score, score)
             if use_alpha_beta:
                 alpha = max(alpha, best_score)
@@ -85,8 +79,9 @@ def minimax(board, depth, maximizing, use_alpha_beta=False, alpha=-math.inf, bet
         best_score = math.inf
         for move in moves:
             new_board = board.copy()
-            new_board[move[0], move[1]] = 'O'
-            score = minimax(new_board, depth + 1, True, use_alpha_beta, alpha, beta)
+            new_board[move[0], move[1]] = current_player
+            next_player = origin if current_player == opponent else opponent
+            score = minimax(new_board, next_player, origin, use_alpha_beta, alpha, beta)
             best_score = min(best_score, score)
             if use_alpha_beta:
                 beta = min(beta, best_score)
@@ -94,31 +89,29 @@ def minimax(board, depth, maximizing, use_alpha_beta=False, alpha=-math.inf, bet
                     break
         return best_score
 
-
 def get_best_move_minimax(board, player, use_alpha_beta=False):
     moves = get_valid_moves(board)
     best_move = None
     if not moves:
         return None
 
-    maximizing = (player == 'X')
-    best_score = -math.inf if maximizing else math.inf
-
+    best_score = -math.inf
     for move in moves:
         new_board = board.copy()
         new_board[move[0], move[1]] = player
-        score = minimax(new_board, 0, not maximizing, use_alpha_beta, -math.inf, math.inf)
-        if (maximizing and score > best_score) or (not maximizing and score < best_score):
+        opponent = 'O' if player == 'X' else 'X'
+        score = minimax(new_board, opponent, player, use_alpha_beta, -math.inf, math.inf)
+        if score > best_score:
             best_score = score
             best_move = move
     return best_move
 
-
 # -----------------------------
-# Q-Learning
+# Q-Learning (Role-Agnostic Version)
 # -----------------------------
 class QLearningAgent:
-    def __init__(self, alpha=0.5, gamma=0.9, epsilon=0.1, decay_factor=0.9999):
+    def __init__(self, player, alpha=0.5, gamma=0.9, epsilon=0.1, decay_factor=0.9999):
+        self.player = player  # 'X' or 'O'
         self.q_table = defaultdict(float)
         self.alpha = alpha
         self.gamma = gamma
@@ -133,14 +126,12 @@ class QLearningAgent:
 
     def update_q_value(self, state, action, reward, next_state):
         current_q = self.get_q_value(state, action)
-        if next_state is None:
-            next_max_q = 0.0
-        else:
-            next_max_q = max([self.get_q_value(next_state, a) for a in get_valid_moves(np.array(next_state))] or [0.0])
+        valid_moves = get_valid_moves(np.array(next_state)) if next_state is not None else []
+        next_max_q = max([self.get_q_value(next_state, a) for a in valid_moves] or [0.0])
         new_q = current_q + self.alpha * (reward + self.gamma * next_max_q - current_q)
         self.q_table[(state, action)] = new_q
 
-    def choose_action(self, board, player, training=True):
+    def choose_action(self, board, training=True):
         state = self.get_state_key(board)
         valid_moves = get_valid_moves(board)
         if not valid_moves:
@@ -153,7 +144,24 @@ class QLearningAgent:
             best_actions = [a for a, q in q_values if q == max_q]
             return random.choice(best_actions) if best_actions else None
 
-    def train(self, num_episodes=10000, opponent_algorithm=4):
+    def blocks_opponent(self, board, action):
+        opponent = 'O' if self.player == 'X' else 'X'
+        temp_board = board.copy()
+        # Check if opponent would win on their next move if we don't take this action
+        for move in get_valid_moves(board):
+            test_board = board.copy()
+            test_board[move[0], move[1]] = opponent
+            if check_winner(test_board, opponent)[0]:
+                # Now check if our action would prevent that
+                temp_board[action[0], action[1]] = self.player
+                test_board = temp_board.copy()
+                test_board[move[0], move[1]] = opponent
+                if not check_winner(test_board, opponent)[0]:
+                    return True
+        return False
+
+    def train(self, num_episodes=10000):
+        opponent = 'O' if self.player == 'X' else 'X'
         for episode in range(num_episodes):
             board = np.full((3, 3), ' ')
             current_player = 'X'
@@ -162,89 +170,72 @@ class QLearningAgent:
             done = False
 
             while not done:
-                if current_player == 'X':
+                if current_player == self.player:
                     state = self.get_state_key(board)
-                    valid_moves = get_valid_moves(board)
-                    if not valid_moves:
-                        break
-                    action = self.choose_action(board, 'X', training=True)
+                    action = self.choose_action(board, training=True)
                     if action is None:
                         break
                     new_board = board.copy()
-                    new_board[action] = 'X'
+                    new_board[action[0], action[1]] = self.player
 
-                    win_X, _ = check_winner(new_board, 'X')
+                    win, _ = check_winner(new_board, self.player)
                     draw = is_draw(new_board)
                     reward = 0
-                    if win_X:
-                        reward = 1
+                    if win:
+                        reward = 10
                         done = True
                     elif draw:
                         reward = 0
                         done = True
-                    else:
-                        done = False
+                    elif self.blocks_opponent(board, action):
+                        reward = 1
 
                     if prev_state is not None and prev_action is not None:
                         self.update_q_value(prev_state, prev_action, reward, self.get_state_key(new_board))
-
                     prev_state = state
                     prev_action = action
                     board = new_board
-                    current_player = 'O'
+                    current_player = opponent
 
                     if done:
                         self.update_q_value(state, action, reward, None)
                 else:
-                    move = get_default_move(board, 'O')
+                    move = get_default_move(board, current_player)
                     if move is None:
                         done = True
-                        reward = 0
                         break
                     new_board = board.copy()
-                    new_board[move] = 'O'
+                    new_board[move[0], move[1]] = opponent
 
-                    win_O, _ = check_winner(new_board, 'O')
+                    win, _ = check_winner(new_board, opponent)
                     draw = is_draw(new_board)
-                    if win_O:
-                        reward = -1
+                    reward = 0
+                    if win:
+                        reward = -10
                         done = True
                     elif draw:
                         reward = 0
                         done = True
-                    else:
-                        done = False
 
                     if prev_state is not None and prev_action is not None:
-                        next_state = self.get_state_key(new_board)
-                        self.update_q_value(prev_state, prev_action, reward, next_state)
-
+                        self.update_q_value(prev_state, prev_action, reward, self.get_state_key(new_board))
                     board = new_board
-                    current_player = 'X'
-
-                    if done:
-                        break
+                    current_player = self.player
 
             self.epsilon = max(0.01, self.epsilon * self.decay_factor)
-
             if (episode + 1) % 1000 == 0:
-                print(f"Episode {episode + 1}/{num_episodes}, Epsilon: {self.epsilon:.4f}")
+                print(f"Agent {self.player}: Episode {episode + 1}/{num_episodes}, Epsilon: {self.epsilon:.4f}")
 
-
-q_learning_agent = None
-
+# Global Q-learning agents for X and O
+q_learning_agent_X = None
+q_learning_agent_O = None
 
 def get_best_move_qlearning(board, player):
-    global q_learning_agent
-    if q_learning_agent is None:
-        q_learning_agent = QLearningAgent()
-        print("Training Q-learning agent. This may take a few minutes...")
-        q_learning_agent.train(num_episodes=10000)
-    valid_moves = get_valid_moves(board)
-    if not valid_moves:
-        return None
-    action = q_learning_agent.choose_action(board, player, training=False)
-    return action
+    global q_learning_agent_X, q_learning_agent_O
+    if player == 'X':
+        return q_learning_agent_X.choose_action(board, training=False)  # No re-training
+    else:
+        return q_learning_agent_O.choose_action(board, training=False)  # No re-training
 
 
 # -----------------------------
@@ -264,7 +255,6 @@ def get_default_move(board, player):
         if check_winner(temp_board, opponent)[0]:
             return move
     return random.choice(moves) if moves else None
-
 
 # -----------------------------
 # TicTacToeGame Simulation
@@ -325,7 +315,7 @@ class TicTacToeGame:
                 self.current_player = 'O' if self.current_player == 'X' else 'X'
 
         if self.winning_cells:
-            winner = 'X' if check_winner(self.board, 'X')[0] else 'O'
+            winner = self.current_player
             algo_name = self.get_algorithm_name(winner)
             self.moves_info.append(f"Winner: {algo_name} ({winner})")
             self.result = winner
@@ -375,12 +365,11 @@ class TicTacToeGame:
         for i in range(3):
             for j in range(3):
                 content = board[i, j]
-                color = 'red' if (i, j) in highlight_cells else 'black'
+                color = 'red' if highlight_cells and (i, j) in highlight_cells else 'black'
                 ax.text(j, 2 - i, content, fontsize=40, ha='center', va='center', color=color)
         ax.set_title(title)
         ax.set_xlim(-0.5, 2.5)
         ax.set_ylim(-0.5, 2.5)
-
 
 def simulate_games(algorithm_x, algorithm_o, num_games=100):
     x_wins = 0
@@ -397,15 +386,19 @@ def simulate_games(algorithm_x, algorithm_o, num_games=100):
             draws += 1
     return x_wins, o_wins, draws
 
-
 # -----------------------------
 # Main Program
 # -----------------------------
 def startUp():
-    global q_learning_agent
-    q_learning_agent = QLearningAgent()
-    print("Training Q-learning agent...")
-    q_learning_agent.train(num_episodes=10000)
+    # Pre-train both Q-learning agents
+    global q_learning_agent_X, q_learning_agent_O
+    q_learning_agent_X = QLearningAgent('X')
+    q_learning_agent_O = QLearningAgent('O')
+    print("Training Q-learning agent for X...")
+    q_learning_agent_X.train(num_episodes=10000)
+    print("Training Q-learning agent for O...")
+    q_learning_agent_O.train(num_episodes=10000)
+
     print("Choose simulation (1: Run a single animated game, 2: run batch(20) simulations)")
     sim_choice = int(input().strip())
     if sim_choice == 1:
@@ -416,9 +409,9 @@ def startUp():
         choice_o = int(input().strip())
         TicTacToeGame(choice_x, choice_o, animate=True)
     else:
-        #  To run simulations and print results
+        # To run simulations and print results
         results = {}
-        simulation_games = 20 # Number of games per pairing
+        simulation_games = 20  # Number of games per pairing
         pair_labels = []
         x_wins_list = []
         o_wins_list = []
@@ -436,7 +429,7 @@ def startUp():
                 x_wins_list.append(x_wins)
                 o_wins_list.append(o_wins)
                 draws_list.append(draws)
-                print(f"Results:")
+                print("Results:")
                 print(f"{x_algo} (X) wins: {x_wins}")
                 print(f"{o_algo} (O) wins: {o_wins}")
                 print(f"Draws: {draws}")
@@ -444,9 +437,23 @@ def startUp():
 
         # Tabulate results
         print("\nFinal Results Tabulation:")
-        print("{:<20} {:<10} {:<10} {:<10}".format("Pairing", "X wins", "O wins", "Draws"))
-        for pair, (x_wins, o_wins, draws) in results.items():
-            print("{:<20} {:<10} {:<10} {:<10}".format(f"{pair[0]} vs {pair[1]}", x_wins, o_wins, draws))
+        # Define CSV filename
+        csv_filename = "tictactoe_results.csv"
+
+        # Write to CSV
+        with open(csv_filename, mode='w', newline='') as csvfile:
+            writer = csv.writer(csvfile)
+
+            # Write header
+            writer.writerow(["Pairing", "X Wins", "O Wins", "Draws"])
+
+            # Write data rows
+            for pair, (x_wins, o_wins, draws) in results.items():
+                pairing = f"{pair[0]} vs {pair[1]}"
+                print("{:<20} {:<10} {:<10} {:<10}".format(pairing, x_wins, o_wins, draws))
+                writer.writerow([pairing, x_wins, o_wins, draws])
+
+        print(f"\nResults saved to {csv_filename}")
 
         # Create a grouped bar chart for the results
         labels = pair_labels
@@ -465,7 +472,8 @@ def startUp():
         ax.legend()
 
         fig.tight_layout()
-        plt.show()
+        plt.savefig("tictactoe_final.png")
+        plt.close()
 
 if __name__ == "__main__":
     startUp()
