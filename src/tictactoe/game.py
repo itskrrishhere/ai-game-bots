@@ -1,4 +1,7 @@
 import csv
+import os
+import shutil
+
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
@@ -6,15 +9,21 @@ import random
 import math
 from collections import defaultdict
 
+
 # -----------------------------
 # Helper functions for Tic Tac Toe
 # -----------------------------
 def get_algorithm_name(choice):
     algorithm_names = {
-        1: "Minimax", 2: "Minimax+AB",
-        3: "Q-learning", 4: "Default"
+        1: "Minimax",
+        2: "Minimax+AB",
+        3: "Q-learning (10k episodes)",
+        4: "Q-learning (20k episodes)",
+        5: "Q-learning (30k episodes)",
+        6: "Default"
     }
     return algorithm_names.get(choice, "Unknown Algorithm")
+
 
 def get_valid_moves(board):
     moves = []
@@ -23,6 +32,7 @@ def get_valid_moves(board):
             if board[i, j] == ' ':
                 moves.append((i, j))
     return moves
+
 
 def check_winner(board, player):
     # Check rows and columns
@@ -39,8 +49,10 @@ def check_winner(board, player):
         return True, [(i, 2 - i) for i in range(3)]
     return False, []
 
+
 def is_draw(board):
     return np.all(board != ' ')
+
 
 # -----------------------------
 # Minimax Algorithms (Role-Agnostic)
@@ -87,6 +99,7 @@ def minimax(board, current_player, origin, use_alpha_beta=False, alpha=-math.inf
                     break
         return best_score
 
+
 def get_best_move_minimax(board, player, use_alpha_beta=False):
     moves = get_valid_moves(board)
     best_move = None
@@ -103,6 +116,7 @@ def get_best_move_minimax(board, player, use_alpha_beta=False):
             best_score = score
             best_move = move
     return best_move
+
 
 # -----------------------------
 # Q-Learning (Role-Agnostic Version)
@@ -150,7 +164,6 @@ class QLearningAgent:
             test_board = board.copy()
             test_board[move[0], move[1]] = opponent
             if check_winner(test_board, opponent)[0]:
-                # Now check if our action would prevent that
                 temp_board[action[0], action[1]] = self.player
                 test_board = temp_board.copy()
                 test_board[move[0], move[1]] = opponent
@@ -224,16 +237,15 @@ class QLearningAgent:
             if (episode + 1) % 1000 == 0:
                 print(f"Agent {self.player}: Episode {episode + 1}/{num_episodes}, Epsilon: {self.epsilon:.4f}")
 
-# Global Q-learning agents for X and O
-q_learning_agent_X = None
-q_learning_agent_O = None
 
-def get_best_move_qlearning(board, player):
-    global q_learning_agent_X, q_learning_agent_O
-    if player == 'X':
-        return q_learning_agent_X.choose_action(board, training=False)  # No re-training
-    else:
-        return q_learning_agent_O.choose_action(board, training=False)  # No re-training
+# Global Q-learning agent cache to avoid retraining repeatedly
+q_agent_cache = {}  # key: ("X", num_episodes) or ("O", num_episodes)
+
+
+def get_best_move_qlearning(board, player, episodes):
+    global q_agent_cache
+    key = (player, episodes)
+    return q_agent_cache[key].choose_action(board, training=False)
 
 
 # -----------------------------
@@ -254,6 +266,7 @@ def get_default_move(board, player):
             return move
     return random.choice(moves) if moves else None
 
+
 # -----------------------------
 # TicTacToeGame Simulation
 # -----------------------------
@@ -272,14 +285,10 @@ class TicTacToeGame:
         self.play_game()
 
     def get_algorithm_name(self, player):
-        algorithm_names = {
-            1: "Minimax", 2: "Minimax+AB",
-            3: "Q-learning", 4: "Default"
-        }
         if player == 'X':
-            return algorithm_names.get(self.algorithm_x, "Unknown Algorithm")
+            return get_algorithm_name(self.algorithm_x)
         elif player == 'O':
-            return algorithm_names.get(self.algorithm_o, "Unknown Algorithm")
+            return get_algorithm_name(self.algorithm_o)
         else:
             return "Unknown Player"
 
@@ -332,9 +341,12 @@ class TicTacToeGame:
             return get_best_move_minimax(self.board, player, use_alpha_beta=False)
         elif algorithm_choice == 2:
             return get_best_move_minimax(self.board, player, use_alpha_beta=True)
-        elif algorithm_choice == 3:
-            return get_best_move_qlearning(self.board, player)
-        elif algorithm_choice == 4:
+        # For Q-learning options (choices 3,4,5), pass the corresponding episode count.
+        elif algorithm_choice in (3, 4, 5):
+            ql_train_map = {3: 10000, 4: 20000, 5: 30000}
+            episodes = ql_train_map[algorithm_choice]
+            return get_best_move_qlearning(self.board, player, episodes)
+        elif algorithm_choice == 6:
             return get_default_move(self.board, player)
         else:
             moves = get_valid_moves(self.board)
@@ -369,6 +381,7 @@ class TicTacToeGame:
         ax.set_xlim(-0.5, 2.5)
         ax.set_ylim(-0.5, 2.5)
 
+
 def simulate_games(algorithm_x, algorithm_o, num_games=100):
     x_wins = 0
     o_wins = 0
@@ -384,96 +397,126 @@ def simulate_games(algorithm_x, algorithm_o, num_games=100):
             draws += 1
     return x_wins, o_wins, draws
 
+
 # -----------------------------
 # Main Program
 # -----------------------------
 def startUp():
-    # Pre-train both Q-learning agents
-    num_episodes = 10000
-    global q_learning_agent_X, q_learning_agent_O
-    q_learning_agent_X = QLearningAgent('X')
-    q_learning_agent_O = QLearningAgent('O')
-    print("Training Q-learning agent for X...")
-    q_learning_agent_X.train(num_episodes=num_episodes)
-    print("Training Q-learning agent for O...")
-    q_learning_agent_O.train(num_episodes=num_episodes)
-
-    print("Choose simulation (1: Run a single animated game, 2: run batch(20) simulations)")
+    global q_agent_cache, current_q_episode_X, current_q_episode_O
+    # Ask user for simulation type
+    print("Choose simulation (1: Run a single animated game, 2: Run batch simulations)")
     sim_choice = int(input().strip())
+
+    # Mapping for Q-learning training episodes
+    ql_train_map = {3: 10000, 4: 20000, 5: 30000}
+
     if sim_choice == 1:
-        # To Run a single animated game
-        print("Choose algorithm for X (1: Minimax, 2: Minimax+AB, 3: Q-learning, 4: Default): ")
+        print(
+            "Choose algorithm for X (1: Minimax, 2: Minimax+AB, 3: Q-learning(10k episodes), 4: Q-learning(20k episodes), 5: Q-learning(30k episodes), 6: Default): ")
         choice_x = int(input().strip())
-        print("Choose algorithm for O (1: Minimax, 2: Minimax+AB, 3: Q-learning, 4: Default): ")
+        print(
+            "Choose algorithm for O (1: Minimax, 2: Minimax+AB, 3: Q-learning(10k episodes), 4: Q-learning(20k episodes), 5: Q-learning(30k episodes), 6: Default): ")
         choice_o = int(input().strip())
+
+        # For Q-learning, use caching to train agents only once.
+        if choice_x in (3, 4, 5):
+            current_q_episode_X = ql_train_map[choice_x]
+            key = ('X', current_q_episode_X)
+            if key not in q_agent_cache:
+                print(f"Training Q-learning agent for X with {current_q_episode_X} episodes...")
+                q_agent_cache[key] = QLearningAgent('X')
+                q_agent_cache[key].train(num_episodes=current_q_episode_X)
+        if choice_o in (3, 4, 5):
+            current_q_episode_O = ql_train_map[choice_o]
+            key = ('O', current_q_episode_O)
+            if key not in q_agent_cache:
+                print(f"Training Q-learning agent for O with {current_q_episode_O} episodes...")
+                q_agent_cache[key] = QLearningAgent('O')
+                q_agent_cache[key].train(num_episodes=current_q_episode_O)
+
         TicTacToeGame(choice_x, choice_o, animate=True)
     else:
-        for sim_count in [20, 40, 60, 80]:
-            # To run simulations and print results
+        # In batch simulation, pretrain the Q-learning agents for choices 3,4,5 once and reuse them.
+        for choice in (3, 4, 5):
+            key_X = ('X', ql_train_map[choice])
+            key_O = ('O', ql_train_map[choice])
+            if key_X not in q_agent_cache:
+                print(f"Pre-training Q-learning agent for X with {ql_train_map[choice]} episodes...")
+                q_agent_cache[key_X] = QLearningAgent('X')
+                q_agent_cache[key_X].train(num_episodes=ql_train_map[choice])
+            if key_O not in q_agent_cache:
+                print(f"Pre-training Q-learning agent for O with {ql_train_map[choice]} episodes...")
+                q_agent_cache[key_O] = QLearningAgent('O')
+                q_agent_cache[key_O].train(num_episodes=ql_train_map[choice])
+        for num_games in (20,40,60,80):
             results = {}
-            simulation_games = sim_count  # Number of games per pairing
             pair_labels = []
-            x_wins_list = []
-            o_wins_list = []
-            draws_list = []
+            x_win_rates = []
+            o_win_rates = []
+            draw_rates = []
 
-            # Simulate distinct pairings (choice_x from 1 to 3 and choice_o from choice_x+1 to 4)
-            for choice_x in range(1, 4):
-                for choice_o in range(choice_x + 1, 5):
+            # Loop over algorithm choices from 1 to 6
+            for choice_x in range(1, 7):
+                for choice_o in range(choice_x + 1, 7):
+                    # Skip simulation when both agents are Q-learning to avoid pairing same Q-learning setups repeatedly
+                    if choice_x in (3, 4, 5) and choice_o in (3, 4, 5):
+                        continue
                     x_algo = get_algorithm_name(choice_x)
                     o_algo = get_algorithm_name(choice_o)
-                    print(f"Simulating {x_algo} (X) vs {o_algo} (O) for {simulation_games} games...")
-                    x_wins, o_wins, draws = simulate_games(choice_x, choice_o, simulation_games)
-                    results[(x_algo, o_algo)] = (x_wins, o_wins, draws)
+                    print(f"Simulating {x_algo} (X) vs {o_algo} (O) ...")
+                    x_wins, o_wins, draws = simulate_games(choice_x, choice_o, num_games=num_games)
+                    x_win_rate = round((x_wins / num_games) * 100, 2)
+                    o_win_rate = round((o_wins / num_games) * 100, 2)
+                    draw_rate = round((draws / num_games) * 100, 2)
+                    results[(x_algo, o_algo)] = (x_win_rate, o_win_rate, draw_rate)
                     pair_labels.append(f"{x_algo} vs {o_algo}")
-                    x_wins_list.append(x_wins)
-                    o_wins_list.append(o_wins)
-                    draws_list.append(draws)
-                    print("Results:")
-                    print(f"{x_algo} (X) wins: {x_wins}")
-                    print(f"{o_algo} (O) wins: {o_wins}")
-                    print(f"Draws: {draws}")
+                    x_win_rates.append(x_win_rate)
+                    o_win_rates.append(o_win_rate)
+                    draw_rates.append(draw_rate)
+                    print(f"{x_algo} win rate: {x_win_rate}%")
+                    print(f"{o_algo} win rate: {o_win_rate}%")
+                    print(f"Draw rate: {draw_rate}%")
                     print("------")
 
-            # Tabulate results
-            print("\nFinal Results Tabulation:")
-            # Define CSV filename
-            csv_filename = f"tictactoe_results_{sim_count}.csv"
+            folder_name = str(num_games)
 
-            # Write to CSV
+            if os.path.exists(folder_name):
+                shutil.rmtree(folder_name)  # Delete folder if it exists
+
+            os.mkdir(folder_name)  # Create new folder
+            print(f"Folder '{folder_name}' created successfully!")
+
+            print("\nFinal Results Tabulation:")
+            csv_filename = f"{num_games}\\tictactoe_results.csv"
             with open(csv_filename, mode='w', newline='') as csvfile:
                 writer = csv.writer(csvfile)
-
-                # Write header
-                writer.writerow(["Pairing", "X Wins", "O Wins", "Draws"])
-
-                # Write data rows
-                for pair, (x_wins, o_wins, draws) in results.items():
+                writer.writerow(
+                    ["Pairing (X VS O)", "X Algorithm Win Rate (%)", "O Algorithm Win Rate (%)", "Draw Rate (%)"])
+                for pair, (x_win_rate, o_win_rate, draw_rate) in results.items():
                     pairing = f"{pair[0]} vs {pair[1]}"
-                    print("{:<20} {:<10} {:<10} {:<10}".format(pairing, x_wins, o_wins, draws))
-                    writer.writerow([pairing, x_wins, o_wins, draws])
-
+                    print("{:<20} {:<10} {:<10} {:<10}".format(pairing, x_win_rate, o_win_rate, draw_rate))
+                    writer.writerow([pairing, x_win_rate, o_win_rate, draw_rate])
             print(f"\nResults saved to {csv_filename}")
 
-            # Create a grouped bar chart for the results
-            labels = pair_labels
-            x = np.arange(len(labels))
-            width = 0.25
-
-            fig, ax = plt.subplots()
-            rects1 = ax.bar(x - width, x_wins_list, width, label='X wins')
-            rects2 = ax.bar(x, o_wins_list, width, label='O wins')
-            rects3 = ax.bar(x + width, draws_list, width, label='Draws')
-
-            ax.set_ylabel('Number of Wins/Draws')
+            x_vals = np.arange(len(pair_labels))
+            width = 0.1
+            fig, ax = plt.subplots(figsize=(12, 6))
+            ax.bar(x_vals - width, x_win_rates, width, label='X Algorithm win rate')
+            ax.bar(x_vals, o_win_rates, width, label='O Algorithm win rate')
+            ax.bar(x_vals + width, draw_rates, width, label='Draw rate')
+            ax.set_ylabel('Win Rate (%)')
             ax.set_title('Simulation Results by Pairing')
-            ax.set_xticks(x)
-            ax.set_xticklabels(labels, rotation=45, ha='right')
-            ax.legend()
+            ax.set_xticks(x_vals)
+            ax.set_xticklabels(pair_labels, rotation=45, ha='right')
+
+            # Place legend outside the plot on the right
+            ax.legend(loc='upper left', bbox_to_anchor=(1.1, 1))
 
             fig.tight_layout()
-            plt.savefig(f"tictactoe_graph{sim_count}.png")
+            # Save with bbox_inches='tight' to include the legend
+            plt.savefig(f"{num_games}\\tictactoe_graph.png", bbox_inches='tight')
             plt.close()
+
 
 if __name__ == "__main__":
     startUp()
