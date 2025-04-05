@@ -1,7 +1,7 @@
 import csv
 import os
 import shutil
-
+import time
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
@@ -9,6 +9,8 @@ import random
 import math
 from collections import defaultdict
 
+# Global cache for minimax evaluations
+minimax_cache = {}
 
 # -----------------------------
 # Helper functions for Tic Tac Toe
@@ -24,7 +26,6 @@ def get_algorithm_name(choice):
     }
     return algorithm_names.get(choice, "Unknown Algorithm")
 
-
 def get_valid_moves(board):
     moves = []
     for i in range(3):
@@ -32,7 +33,6 @@ def get_valid_moves(board):
             if board[i, j] == ' ':
                 moves.append((i, j))
     return moves
-
 
 def check_winner(board, player):
     # Check rows and columns
@@ -49,15 +49,18 @@ def check_winner(board, player):
         return True, [(i, 2 - i) for i in range(3)]
     return False, []
 
-
 def is_draw(board):
     return np.all(board != ' ')
 
-
 # -----------------------------
-# Minimax Algorithms (Role-Agnostic)
+# Minimax Algorithms with Caching/Memoization
 # -----------------------------
 def minimax(board, current_player, origin, use_alpha_beta=False, alpha=-math.inf, beta=math.inf):
+    board_key = tuple(map(tuple, board))
+    cache_key = (board_key, current_player, origin, use_alpha_beta)
+    if cache_key in minimax_cache:
+        return minimax_cache[cache_key]
+
     # Terminal condition: if board is finished, evaluate from origin's perspective.
     win_origin, _ = check_winner(board, origin)
     opponent = 'O' if origin == 'X' else 'X'
@@ -84,7 +87,6 @@ def minimax(board, current_player, origin, use_alpha_beta=False, alpha=-math.inf
                 alpha = max(alpha, best_score)
                 if beta <= alpha:
                     break
-        return best_score
     else:
         best_score = math.inf
         for move in moves:
@@ -97,8 +99,9 @@ def minimax(board, current_player, origin, use_alpha_beta=False, alpha=-math.inf
                 beta = min(beta, best_score)
                 if beta <= alpha:
                     break
-        return best_score
 
+    minimax_cache[cache_key] = best_score
+    return best_score
 
 def get_best_move_minimax(board, player, use_alpha_beta=False):
     moves = get_valid_moves(board)
@@ -117,12 +120,11 @@ def get_best_move_minimax(board, player, use_alpha_beta=False):
             best_move = move
     return best_move
 
-
 # -----------------------------
-# Q-Learning (Role-Agnostic Version)
+# Q-Learning
 # -----------------------------
 class QLearningAgent:
-    def __init__(self, player, alpha=0.5, gamma=0.9, epsilon=0.1, decay_factor=0.9999):
+    def __init__(self, player, alpha=0.5, gamma=0.99, epsilon=0.2, decay_factor=0.9999):
         self.player = player  # 'X' or 'O'
         self.q_table = defaultdict(float)
         self.alpha = alpha
@@ -158,14 +160,12 @@ class QLearningAgent:
 
     def blocks_opponent(self, board, action):
         opponent = 'O' if self.player == 'X' else 'X'
-        temp_board = board.copy()
-        # Check if opponent would win on their next move if we don't take this action
         for move in get_valid_moves(board):
             test_board = board.copy()
             test_board[move[0], move[1]] = opponent
             if check_winner(test_board, opponent)[0]:
-                temp_board[action[0], action[1]] = self.player
-                test_board = temp_board.copy()
+                test_board = board.copy()
+                test_board[action[0], action[1]] = self.player
                 test_board[move[0], move[1]] = opponent
                 if not check_winner(test_board, opponent)[0]:
                     return True
@@ -193,13 +193,13 @@ class QLearningAgent:
                     draw = is_draw(new_board)
                     reward = 0
                     if win:
-                        reward = 10
+                        reward = 20
                         done = True
                     elif draw:
                         reward = 0
                         done = True
                     elif self.blocks_opponent(board, action):
-                        reward = 1
+                        reward = 0.25
 
                     if prev_state is not None and prev_action is not None:
                         self.update_q_value(prev_state, prev_action, reward, self.get_state_key(new_board))
@@ -211,6 +211,13 @@ class QLearningAgent:
                     if done:
                         self.update_q_value(state, action, reward, None)
                 else:
+                    # # Use minimax for the opponent instead of the default move.
+                    # move = get_best_move_minimax(board, current_player, use_alpha_beta=False)
+                    # if move is None:
+                    #     done = True
+                    #     break
+                    # new_board = board.copy()
+                    # new_board[move[0], move[1]] = opponent
                     move = get_default_move(board, current_player)
                     if move is None:
                         done = True
@@ -222,7 +229,7 @@ class QLearningAgent:
                     draw = is_draw(new_board)
                     reward = 0
                     if win:
-                        reward = -10
+                        reward = -20
                         done = True
                     elif draw:
                         reward = 0
@@ -237,16 +244,13 @@ class QLearningAgent:
             if (episode + 1) % 1000 == 0:
                 print(f"Agent {self.player}: Episode {episode + 1}/{num_episodes}, Epsilon: {self.epsilon:.4f}")
 
-
 # Global Q-learning agent cache to avoid retraining repeatedly
 q_agent_cache = {}  # key: ("X", num_episodes) or ("O", num_episodes)
-
 
 def get_best_move_qlearning(board, player, episodes):
     global q_agent_cache
     key = (player, episodes)
     return q_agent_cache[key].choose_action(board, training=False)
-
 
 # -----------------------------
 # Default Opponent
@@ -265,7 +269,6 @@ def get_default_move(board, player):
         if check_winner(temp_board, opponent)[0]:
             return move
     return random.choice(moves) if moves else None
-
 
 # -----------------------------
 # TicTacToeGame Simulation
@@ -341,7 +344,6 @@ class TicTacToeGame:
             return get_best_move_minimax(self.board, player, use_alpha_beta=False)
         elif algorithm_choice == 2:
             return get_best_move_minimax(self.board, player, use_alpha_beta=True)
-        # For Q-learning options (choices 3,4,5), pass the corresponding episode count.
         elif algorithm_choice in (3, 4, 5):
             ql_train_map = {3: 10000, 4: 20000, 5: 30000}
             episodes = ql_train_map[algorithm_choice]
@@ -381,13 +383,19 @@ class TicTacToeGame:
         ax.set_xlim(-0.5, 2.5)
         ax.set_ylim(-0.5, 2.5)
 
-
 def simulate_games(algorithm_x, algorithm_o, num_games=100):
     x_wins = 0
     o_wins = 0
     draws = 0
+    total_time = 0.0
+    total_moves = 0
     for _ in range(num_games):
+        start_time = time.time()
         game = TicTacToeGame(algorithm_x, algorithm_o, animate=False)
+        end_time = time.time()
+        game_time = end_time - start_time
+        total_time += game_time
+
         result = game.result
         if result == 'X':
             x_wins += 1
@@ -395,30 +403,31 @@ def simulate_games(algorithm_x, algorithm_o, num_games=100):
             o_wins += 1
         else:
             draws += 1
-    return x_wins, o_wins, draws
 
+        # Count moves as the number of non-empty cells on the final board.
+        moves_count = np.count_nonzero(game.board != ' ')
+        total_moves += moves_count
+
+    avg_time = total_time / num_games
+    avg_moves = total_moves / num_games
+    return x_wins, o_wins, draws, avg_time, avg_moves
 
 # -----------------------------
 # Main Program
 # -----------------------------
 def startUp():
-    global q_agent_cache, current_q_episode_X, current_q_episode_O
-    # Ask user for simulation type
+    global q_agent_cache
     print("Choose simulation (1: Run a single animated game, 2: Run batch simulations)")
     sim_choice = int(input().strip())
 
-    # Mapping for Q-learning training episodes
     ql_train_map = {3: 10000, 4: 20000, 5: 30000}
 
     if sim_choice == 1:
-        print(
-            "Choose algorithm for X (1: Minimax, 2: Minimax+AB, 3: Q-learning(10k episodes), 4: Q-learning(20k episodes), 5: Q-learning(30k episodes), 6: Default): ")
+        print("Choose algorithm for X (1: Minimax, 2: Minimax+AB, 3: Q-learning(10k episodes), 4: Q-learning(20k episodes), 5: Q-learning(30k episodes), 6: Default): ")
         choice_x = int(input().strip())
-        print(
-            "Choose algorithm for O (1: Minimax, 2: Minimax+AB, 3: Q-learning(10k episodes), 4: Q-learning(20k episodes), 5: Q-learning(30k episodes), 6: Default): ")
+        print("Choose algorithm for O (1: Minimax, 2: Minimax+AB, 3: Q-learning(10k episodes), 4: Q-learning(20k episodes), 5: Q-learning(30k episodes), 6: Default): ")
         choice_o = int(input().strip())
 
-        # For Q-learning, use caching to train agents only once.
         if choice_x in (3, 4, 5):
             current_q_episode_X = ql_train_map[choice_x]
             key = ('X', current_q_episode_X)
@@ -436,7 +445,6 @@ def startUp():
 
         TicTacToeGame(choice_x, choice_o, animate=True)
     else:
-        # In batch simulation, pretrain the Q-learning agents for choices 3,4,5 once and reuse them.
         for choice in (3, 4, 5):
             key_X = ('X', ql_train_map[choice])
             key_O = ('O', ql_train_map[choice])
@@ -448,75 +456,180 @@ def startUp():
                 print(f"Pre-training Q-learning agent for O with {ql_train_map[choice]} episodes...")
                 q_agent_cache[key_O] = QLearningAgent('O')
                 q_agent_cache[key_O].train(num_episodes=ql_train_map[choice])
-        for num_games in (20,40,60,80):
-            results = {}
-            pair_labels = []
-            x_win_rates = []
-            o_win_rates = []
-            draw_rates = []
+        # Set number of games for each evaluation
+        sim_num_games = 100
 
-            # Loop over algorithm choices from 1 to 6
-            for choice_x in range(1, 7):
-                for choice_o in range(choice_x + 1, 7):
-                    # Skip simulation when both agents are Q-learning to avoid pairing same Q-learning setups repeatedly
-                    if choice_x in (3, 4, 5) and choice_o in (3, 4, 5):
-                        continue
-                    x_algo = get_algorithm_name(choice_x)
-                    o_algo = get_algorithm_name(choice_o)
-                    print(f"Simulating {x_algo} (X) vs {o_algo} (O) ...")
-                    x_wins, o_wins, draws = simulate_games(choice_x, choice_o, num_games=num_games)
-                    x_win_rate = round((x_wins / num_games) * 100, 2)
-                    o_win_rate = round((o_wins / num_games) * 100, 2)
-                    draw_rate = round((draws / num_games) * 100, 2)
-                    results[(x_algo, o_algo)] = (x_win_rate, o_win_rate, draw_rate)
-                    pair_labels.append(f"{x_algo} vs {o_algo}")
-                    x_win_rates.append(x_win_rate)
-                    o_win_rates.append(o_win_rate)
-                    draw_rates.append(draw_rate)
-                    print(f"{x_algo} win rate: {x_win_rate}%")
-                    print(f"{o_algo} win rate: {o_win_rate}%")
-                    print(f"Draw rate: {draw_rate}%")
-                    print("------")
+        # 1. Evaluation: Algorithms vs Default Opponent (Algorithm 6)
+        eval_vs_default = {}
+        for choice in range(1, 7):
+            if choice == 6:  # Skip default vs default
+                continue
+            algo_name = get_algorithm_name(choice)
+            print(f"Simulating {algo_name} (as X) vs Default Opponent (O)...")
+            x_wins, o_wins, draws, avg_time, avg_moves = simulate_games(choice, 6, num_games=sim_num_games)
+            eval_vs_default[algo_name] = (x_wins, o_wins, draws, avg_time, avg_moves)
 
-            folder_name = str(num_games)
+        # Write CSV for vs Default evaluation
+        default_csv = "vs_default_results.csv"
+        with open(default_csv, mode='w', newline='') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(["Algorithm", "Wins (%)", "Losses (%)", "Draws (%)", "Avg Game Time (s)", "Avg Moves"])
+            for algo, (x_wins, o_wins, draws, avg_time, avg_moves) in eval_vs_default.items():
+                total = x_wins + o_wins + draws
+                win_rate = round((x_wins / total) * 100, 2) if total else 0
+                loss_rate = round((o_wins / total) * 100, 2) if total else 0
+                draw_rate = round((draws / total) * 100, 2) if total else 0
+                writer.writerow([algo, win_rate, loss_rate, draw_rate, f"{avg_time:.4f}", f"{avg_moves:.2f}"])
+        print(f"Vs Default evaluation results saved to {default_csv}")
 
-            if os.path.exists(folder_name):
-                shutil.rmtree(folder_name)  # Delete folder if it exists
+        # Graph for vs Default evaluation
+        algos = list(eval_vs_default.keys())
+        win_rates = [round((eval_vs_default[a][0] / (sum(eval_vs_default[a][:3])) * 100), 2) for a in algos]
+        loss_rates = [round((eval_vs_default[a][1] / (sum(eval_vs_default[a][:3])) * 100), 2) for a in algos]
+        draw_rates = [round((eval_vs_default[a][2] / (sum(eval_vs_default[a][:3])) * 100), 2) for a in algos]
+        avg_times = [eval_vs_default[a][3] for a in algos]
+        avg_moves = [eval_vs_default[a][4] for a in algos]
 
-            os.mkdir(folder_name)  # Create new folder
-            print(f"Folder '{folder_name}' created successfully!")
+        x = np.arange(len(algos))
+        width = 0.2
+        fig, ax = plt.subplots(figsize=(10,6))
+        ax.bar(x - width, win_rates, width, label='Win Rate')
+        ax.bar(x, loss_rates, width, label='Loss Rate')
+        ax.bar(x + width, draw_rates, width, label='Draw Rate')
+        ax.set_ylabel('Percentage')
+        ax.set_title('Algorithms vs Default Opponent')
+        ax.set_xticks(x)
+        ax.set_xticklabels(algos)
+        ax.legend()
+        plt.tight_layout()
+        plt.savefig("vs_default_graph.png", bbox_inches='tight')
+        plt.close()
 
-            print("\nFinal Results Tabulation:")
-            csv_filename = f"{num_games}\\tictactoe_results.csv"
-            with open(csv_filename, mode='w', newline='') as csvfile:
-                writer = csv.writer(csvfile)
-                writer.writerow(
-                    ["Pairing (X VS O)", "X Algorithm Win Rate (%)", "O Algorithm Win Rate (%)", "Draw Rate (%)"])
-                for pair, (x_win_rate, o_win_rate, draw_rate) in results.items():
-                    pairing = f"{pair[0]} vs {pair[1]}"
-                    print("{:<20} {:<10} {:<10} {:<10}".format(pairing, x_win_rate, o_win_rate, draw_rate))
-                    writer.writerow([pairing, x_win_rate, o_win_rate, draw_rate])
-            print(f"\nResults saved to {csv_filename}")
+        # 2. Evaluation: Head-to-Head (Only for algorithms 1 to 5)
+        eval_head2head = {}
+        for i in range(1, 6):
+            for j in range(i+1, 6):
+                algo_i = get_algorithm_name(i)
+                algo_j = get_algorithm_name(j)
+                print(f"Simulating {algo_i} (X) vs {algo_j} (O)...")
+                x_wins, o_wins, draws, avg_time, avg_moves = simulate_games(i, j, num_games=sim_num_games)
+                eval_head2head[(algo_i, algo_j)] = (x_wins, o_wins, draws, avg_time, avg_moves)
 
-            x_vals = np.arange(len(pair_labels))
-            width = 0.1
-            fig, ax = plt.subplots(figsize=(12, 6))
-            ax.bar(x_vals - width, x_win_rates, width, label='X Algorithm win rate')
-            ax.bar(x_vals, o_win_rates, width, label='O Algorithm win rate')
-            ax.bar(x_vals + width, draw_rates, width, label='Draw rate')
-            ax.set_ylabel('Win Rate (%)')
-            ax.set_title('Simulation Results by Pairing')
-            ax.set_xticks(x_vals)
-            ax.set_xticklabels(pair_labels, rotation=45, ha='right')
+        # Write CSV for head-to-head evaluation
+        head2head_csv = "head2head_results.csv"
+        with open(head2head_csv, mode='w', newline='') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(["Pairing (X vs O)", "X Wins (%)", "O Wins (%)", "Draws (%)", "Avg Game Time (s)", "Avg Moves"])
+            for (algo_i, algo_j), (x_wins, o_wins, draws, avg_time, avg_moves) in eval_head2head.items():
+                total = x_wins + o_wins + draws
+                x_win_rate = round((x_wins / total) * 100, 2) if total else 0
+                o_win_rate = round((o_wins / total) * 100, 2) if total else 0
+                draw_rate = round((draws / total) * 100, 2) if total else 0
+                pairing = f"{algo_i} vs {algo_j}"
+                writer.writerow([pairing, x_win_rate, o_win_rate, draw_rate, f"{avg_time:.4f}", f"{avg_moves:.2f}"])
+        print(f"Head-to-Head evaluation results saved to {head2head_csv}")
 
-            # Place legend outside the plot on the right
-            ax.legend(loc='upper left', bbox_to_anchor=(1.1, 1))
+        # Graph for head-to-head evaluation (Win rates)
+        pairings = list(eval_head2head.keys())
+        x_win_rates = []
+        o_win_rates = []
+        draw_rates = []
+        for pairing in pairings:
+            x_w, o_w, d, _, _ = eval_head2head[pairing]
+            total = x_w + o_w + d
+            x_win_rates.append(round((x_w / total) * 100, 2) if total else 0)
+            o_win_rates.append(round((o_w / total) * 100, 2) if total else 0)
+            draw_rates.append(round((d / total) * 100, 2) if total else 0)
+        x_axis = np.arange(len(pairings))
+        width = 0.2
+        fig, ax = plt.subplots(figsize=(12,6))
+        ax.bar(x_axis - width, x_win_rates, width, label='X Win Rate')
+        ax.bar(x_axis, o_win_rates, width, label='O Win Rate')
+        ax.bar(x_axis + width, draw_rates, width, label='Draw Rate')
+        ax.set_ylabel('Percentage')
+        ax.set_title('Head-to-Head Evaluation (Algorithms 1-5)')
+        ax.set_xticks(x_axis)
+        ax.set_xticklabels([f"{p[0]} vs {p[1]}" for p in pairings], rotation=45, ha='right')
+        ax.legend()
+        plt.tight_layout()
+        plt.savefig("head2head_graph.png", bbox_inches='tight')
+        plt.close()
 
-            fig.tight_layout()
-            # Save with bbox_inches='tight' to include the legend
-            plt.savefig(f"{num_games}\\tictactoe_graph.png", bbox_inches='tight')
-            plt.close()
+        # 3. Overall Evaluation: Aggregate performance for each algorithm (1-6)
+        overall_metrics = {alg: {"wins":0, "games":0, "time":0, "moves":0} for alg in range(1,7)}
+        # From vs Default (for algorithms 1-5)
+        for choice in range(1, 6):
+            algo_name = get_algorithm_name(choice)
+            x_wins, o_wins, draws, avg_time, avg_moves = eval_vs_default[algo_name]
+            total = x_wins + o_wins + draws
+            overall_metrics[choice]["wins"] += x_wins
+            overall_metrics[choice]["games"] += total
+            overall_metrics[choice]["time"] += avg_time * total
+            overall_metrics[choice]["moves"] += avg_moves * total
+            # For default (as opponent), update from perspective of algorithm 6:
+            overall_metrics[6]["wins"] += o_wins
+            overall_metrics[6]["games"] += total
+            overall_metrics[6]["time"] += avg_time * total
+            overall_metrics[6]["moves"] += avg_moves * total
+        # From head-to-head among algorithms 1-5
+        for i in range(1, 6):
+            for j in range(i+1, 6):
+                algo_i = get_algorithm_name(i)
+                algo_j = get_algorithm_name(j)
+                if (algo_i, algo_j) in eval_head2head:
+                    x_wins, o_wins, draws, avg_time, avg_moves = eval_head2head[(algo_i, algo_j)]
+                    total = x_wins + o_wins + draws
+                    overall_metrics[i]["wins"] += x_wins
+                    overall_metrics[i]["games"] += total
+                    overall_metrics[i]["time"] += avg_time * total
+                    overall_metrics[i]["moves"] += avg_moves * total
 
+                    overall_metrics[j]["wins"] += o_wins
+                    overall_metrics[j]["games"] += total
+                    overall_metrics[j]["time"] += avg_time * total
+                    overall_metrics[j]["moves"] += avg_moves * total
+
+        overall_results = {}
+        for alg in range(1,7):
+            games = overall_metrics[alg]["games"]
+            if games > 0:
+                win_rate = round((overall_metrics[alg]["wins"] / games) * 100, 2)
+                avg_time_overall = overall_metrics[alg]["time"] / games
+                avg_moves_overall = overall_metrics[alg]["moves"] / games
+            else:
+                win_rate = 0
+                avg_time_overall = 0
+                avg_moves_overall = 0
+            overall_results[get_algorithm_name(alg)] = (win_rate, avg_time_overall, avg_moves_overall)
+
+        # Write CSV for overall evaluation
+        overall_csv = "overall_results.csv"
+        with open(overall_csv, mode='w', newline='') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(["Algorithm", "Overall Win Rate (%)", "Avg Game Time (s)", "Avg Moves"])
+            for algo, (win_rate, avg_time_overall, avg_moves_overall) in overall_results.items():
+                writer.writerow([algo, win_rate, f"{avg_time_overall:.4f}", f"{avg_moves_overall:.2f}"])
+        print(f"Overall evaluation results saved to {overall_csv}")
+
+        # Graph for overall evaluation
+        algos = list(overall_results.keys())
+        overall_win_rates = [overall_results[a][0] for a in algos]
+        overall_avg_times = [overall_results[a][1] for a in algos]
+        overall_avg_moves = [overall_results[a][2] for a in algos]
+
+        x = np.arange(len(algos))
+        width = 0.25
+        fig, ax = plt.subplots(figsize=(10,6))
+        ax.bar(x - width, overall_win_rates, width, label='Win Rate (%)')
+        ax.bar(x, overall_avg_times, width, label='Avg Game Time (s)')
+        ax.bar(x + width, overall_avg_moves, width, label='Avg Moves')
+        ax.set_title('Overall Evaluation of Algorithms')
+        ax.set_xticks(x)
+        ax.set_xticklabels(algos)
+        ax.legend()
+        plt.tight_layout()
+        plt.savefig("overall_graph.png", bbox_inches='tight')
+        plt.close()
 
 if __name__ == "__main__":
     startUp()
