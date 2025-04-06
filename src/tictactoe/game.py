@@ -173,6 +173,7 @@ class QLearningAgent:
 
     def train(self, num_episodes=10000):
         opponent = 'O' if self.player == 'X' else 'X'
+        winCount,loseCount =0,0
         for episode in range(num_episodes):
             board = np.full((3, 3), ' ')
             current_player = 'X'
@@ -194,6 +195,7 @@ class QLearningAgent:
                     reward = 0
                     if win:
                         reward = 20
+                        winCount+=1
                         done = True
                     elif draw:
                         reward = 0
@@ -230,6 +232,7 @@ class QLearningAgent:
                     reward = 0
                     if win:
                         reward = -20
+                        loseCount+=1
                         done = True
                     elif draw:
                         reward = 0
@@ -243,7 +246,7 @@ class QLearningAgent:
             self.epsilon = max(0.01, self.epsilon * self.decay_factor)
             if (episode + 1) % 1000 == 0:
                 print(f"Agent {self.player}: Episode {episode + 1}/{num_episodes}, Epsilon: {self.epsilon:.4f}")
-
+        print(f"Final Win count: {winCount}, Loss Count: {loseCount}")
 # Global Q-learning agent cache to avoid retraining repeatedly
 q_agent_cache = {}  # key: ("X", num_episodes) or ("O", num_episodes)
 
