@@ -1,0 +1,6 @@
+Algorithm,Wins (%),Losses (%),Draws (%),Avg Game Time (s),Avg Moves
+Minimax,91.0,0.0,9.0,0.0021,7.18
+Minimax+AB,75.0,0.0,25.0,0.0013,7.50
+Q-learning (10k episodes),94.0,2.0,4.0,0.0003,7.08
+Q-learning (20k episodes),88.0,0.0,12.0,0.0003,7.24
+Q-learning (30k episodes),89.0,0.0,11.0,0.0004,7.22

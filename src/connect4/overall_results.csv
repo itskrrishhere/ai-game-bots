@@ -1,0 +1,7 @@
+Algorithm,Overall Win Rate (%),Avg Game Time (s),Avg Moves
+Minimax,78.8,0.6878,16.35
+Minimax+AB,98.2,0.1668,17.01
+Q-learning (20k episodes),37.8,0.2031,15.46
+Q-learning (60k episodes),32.2,0.1846,14.80
+Q-learning (100k episodes),21.8,0.1887,15.58
+Default,31.0,0.4216,14.47

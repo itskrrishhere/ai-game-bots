@@ -1,6 +1,4 @@
 import csv
-import os
-import shutil
 import time
 import numpy as np
 import matplotlib.pyplot as plt
@@ -12,6 +10,8 @@ from collections import defaultdict
 # Global cache for minimax evaluations
 minimax_cache = {}
 
+
+# reference - https://realpython.com/tic-tac-toe-python/
 # -----------------------------
 # Helper functions for Tic Tac Toe
 # -----------------------------
@@ -26,6 +26,7 @@ def get_algorithm_name(choice):
     }
     return algorithm_names.get(choice, "Unknown Algorithm")
 
+
 def get_valid_moves(board):
     moves = []
     for i in range(3):
@@ -33,6 +34,7 @@ def get_valid_moves(board):
             if board[i, j] == ' ':
                 moves.append((i, j))
     return moves
+
 
 def check_winner(board, player):
     # Check rows and columns
@@ -49,8 +51,10 @@ def check_winner(board, player):
         return True, [(i, 2 - i) for i in range(3)]
     return False, []
 
+
 def is_draw(board):
     return np.all(board != ' ')
+
 
 # -----------------------------
 # Minimax Algorithms with Caching/Memoization
@@ -103,6 +107,7 @@ def minimax(board, current_player, origin, use_alpha_beta=False, alpha=-math.inf
     minimax_cache[cache_key] = best_score
     return best_score
 
+
 def get_best_move_minimax(board, player, use_alpha_beta=False):
     moves = get_valid_moves(board)
     best_move = None
@@ -120,11 +125,12 @@ def get_best_move_minimax(board, player, use_alpha_beta=False):
             best_move = move
     return best_move
 
+
 # -----------------------------
 # Q-Learning
 # -----------------------------
 class QLearningAgent:
-    def __init__(self, player, alpha=0.5, gamma=0.99, epsilon=0.2, decay_factor=0.9999):
+    def __init__(self, player, alpha=0.5, gamma=0.99, epsilon=0.1, decay_factor=0.9999):
         self.player = player  # 'X' or 'O'
         self.q_table = defaultdict(float)
         self.alpha = alpha
@@ -173,7 +179,7 @@ class QLearningAgent:
 
     def train(self, num_episodes=10000):
         opponent = 'O' if self.player == 'X' else 'X'
-        winCount,loseCount =0,0
+        win_count, lose_count = 0, 0
         for episode in range(num_episodes):
             board = np.full((3, 3), ' ')
             current_player = 'X'
@@ -195,7 +201,7 @@ class QLearningAgent:
                     reward = 0
                     if win:
                         reward = 20
-                        winCount+=1
+                        win_count += 1
                         done = True
                     elif draw:
                         reward = 0
@@ -213,7 +219,7 @@ class QLearningAgent:
                     if done:
                         self.update_q_value(state, action, reward, None)
                 else:
-                    # # Use minimax for the opponent instead of the default move.
+                    # Use minimax for the opponent instead of the default move.
                     # move = get_best_move_minimax(board, current_player, use_alpha_beta=False)
                     # if move is None:
                     #     done = True
@@ -232,7 +238,7 @@ class QLearningAgent:
                     reward = 0
                     if win:
                         reward = -20
-                        loseCount+=1
+                        lose_count += 1
                         done = True
                     elif draw:
                         reward = 0
@@ -246,14 +252,18 @@ class QLearningAgent:
             self.epsilon = max(0.01, self.epsilon * self.decay_factor)
             if (episode + 1) % 1000 == 0:
                 print(f"Agent {self.player}: Episode {episode + 1}/{num_episodes}, Epsilon: {self.epsilon:.4f}")
-        print(f"Final Win count: {winCount}, Loss Count: {loseCount}")
+        print(f"Final Win count: {win_count}, Loss Count: {lose_count}")
+
+
 # Global Q-learning agent cache to avoid retraining repeatedly
 q_agent_cache = {}  # key: ("X", num_episodes) or ("O", num_episodes)
+
 
 def get_best_move_qlearning(board, player, episodes):
     global q_agent_cache
     key = (player, episodes)
     return q_agent_cache[key].choose_action(board, training=False)
+
 
 # -----------------------------
 # Default Opponent
@@ -272,6 +282,7 @@ def get_default_move(board, player):
         if check_winner(temp_board, opponent)[0]:
             return move
     return random.choice(moves) if moves else None
+
 
 # -----------------------------
 # TicTacToeGame Simulation
@@ -386,6 +397,7 @@ class TicTacToeGame:
         ax.set_xlim(-0.5, 2.5)
         ax.set_ylim(-0.5, 2.5)
 
+
 def simulate_games(algorithm_x, algorithm_o, num_games=100):
     x_wins = 0
     o_wins = 0
@@ -415,6 +427,7 @@ def simulate_games(algorithm_x, algorithm_o, num_games=100):
     avg_moves = total_moves / num_games
     return x_wins, o_wins, draws, avg_time, avg_moves
 
+
 # -----------------------------
 # Main Program
 # -----------------------------
@@ -426,39 +439,43 @@ def startUp():
     ql_train_map = {3: 10000, 4: 20000, 5: 30000}
 
     if sim_choice == 1:
-        print("Choose algorithm for X (1: Minimax, 2: Minimax+AB, 3: Q-learning(10k episodes), 4: Q-learning(20k episodes), 5: Q-learning(30k episodes), 6: Default): ")
+        print(
+            "Choose algorithm for X (1: Minimax, 2: Minimax+AB, 3: Q-learning(10k episodes), 4: Q-learning(20k "
+            "episodes), 5: Q-learning(30k episodes), 6: Default): ")
         choice_x = int(input().strip())
-        print("Choose algorithm for O (1: Minimax, 2: Minimax+AB, 3: Q-learning(10k episodes), 4: Q-learning(20k episodes), 5: Q-learning(30k episodes), 6: Default): ")
+        print(
+            "Choose algorithm for O (1: Minimax, 2: Minimax+AB, 3: Q-learning(10k episodes), 4: Q-learning(20k "
+            "episodes), 5: Q-learning(30k episodes), 6: Default): ")
         choice_o = int(input().strip())
 
         if choice_x in (3, 4, 5):
-            current_q_episode_X = ql_train_map[choice_x]
-            key = ('X', current_q_episode_X)
+            current_q_episode_x = ql_train_map[choice_x]
+            key = ('X', current_q_episode_x)
             if key not in q_agent_cache:
-                print(f"Training Q-learning agent for X with {current_q_episode_X} episodes...")
+                print(f"Training Q-learning agent for X with {current_q_episode_x} episodes...")
                 q_agent_cache[key] = QLearningAgent('X')
-                q_agent_cache[key].train(num_episodes=current_q_episode_X)
+                q_agent_cache[key].train(num_episodes=current_q_episode_x)
         if choice_o in (3, 4, 5):
-            current_q_episode_O = ql_train_map[choice_o]
-            key = ('O', current_q_episode_O)
+            current_q_episode_o = ql_train_map[choice_o]
+            key = ('O', current_q_episode_o)
             if key not in q_agent_cache:
-                print(f"Training Q-learning agent for O with {current_q_episode_O} episodes...")
+                print(f"Training Q-learning agent for O with {current_q_episode_o} episodes...")
                 q_agent_cache[key] = QLearningAgent('O')
-                q_agent_cache[key].train(num_episodes=current_q_episode_O)
+                q_agent_cache[key].train(num_episodes=current_q_episode_o)
 
         TicTacToeGame(choice_x, choice_o, animate=True)
     else:
         for choice in (3, 4, 5):
-            key_X = ('X', ql_train_map[choice])
-            key_O = ('O', ql_train_map[choice])
-            if key_X not in q_agent_cache:
+            key_x = ('X', ql_train_map[choice])
+            key_o = ('O', ql_train_map[choice])
+            if key_x not in q_agent_cache:
                 print(f"Pre-training Q-learning agent for X with {ql_train_map[choice]} episodes...")
-                q_agent_cache[key_X] = QLearningAgent('X')
-                q_agent_cache[key_X].train(num_episodes=ql_train_map[choice])
-            if key_O not in q_agent_cache:
+                q_agent_cache[key_x] = QLearningAgent('X')
+                q_agent_cache[key_x].train(num_episodes=ql_train_map[choice])
+            if key_o not in q_agent_cache:
                 print(f"Pre-training Q-learning agent for O with {ql_train_map[choice]} episodes...")
-                q_agent_cache[key_O] = QLearningAgent('O')
-                q_agent_cache[key_O].train(num_episodes=ql_train_map[choice])
+                q_agent_cache[key_o] = QLearningAgent('O')
+                q_agent_cache[key_o].train(num_episodes=ql_train_map[choice])
         # Set number of games for each evaluation
         sim_num_games = 100
 
@@ -490,12 +507,10 @@ def startUp():
         win_rates = [round((eval_vs_default[a][0] / (sum(eval_vs_default[a][:3])) * 100), 2) for a in algos]
         loss_rates = [round((eval_vs_default[a][1] / (sum(eval_vs_default[a][:3])) * 100), 2) for a in algos]
         draw_rates = [round((eval_vs_default[a][2] / (sum(eval_vs_default[a][:3])) * 100), 2) for a in algos]
-        avg_times = [eval_vs_default[a][3] for a in algos]
-        avg_moves = [eval_vs_default[a][4] for a in algos]
 
         x = np.arange(len(algos))
         width = 0.2
-        fig, ax = plt.subplots(figsize=(10,6))
+        fig, ax = plt.subplots(figsize=(10, 6))
         ax.bar(x - width, win_rates, width, label='Win Rate')
         ax.bar(x, loss_rates, width, label='Loss Rate')
         ax.bar(x + width, draw_rates, width, label='Draw Rate')
@@ -511,7 +526,7 @@ def startUp():
         # 2. Evaluation: Head-to-Head (Only for algorithms 1 to 5)
         eval_head2head = {}
         for i in range(1, 6):
-            for j in range(i+1, 6):
+            for j in range(i + 1, 6):
                 algo_i = get_algorithm_name(i)
                 algo_j = get_algorithm_name(j)
                 print(f"Simulating {algo_i} (X) vs {algo_j} (O)...")
@@ -522,7 +537,8 @@ def startUp():
         head2head_csv = "head2head_results.csv"
         with open(head2head_csv, mode='w', newline='') as csvfile:
             writer = csv.writer(csvfile)
-            writer.writerow(["Pairing (X vs O)", "X Wins (%)", "O Wins (%)", "Draws (%)", "Avg Game Time (s)", "Avg Moves"])
+            writer.writerow(
+                ["Pairing (X vs O)", "X Wins (%)", "O Wins (%)", "Draws (%)", "Avg Game Time (s)", "Avg Moves"])
             for (algo_i, algo_j), (x_wins, o_wins, draws, avg_time, avg_moves) in eval_head2head.items():
                 total = x_wins + o_wins + draws
                 x_win_rate = round((x_wins / total) * 100, 2) if total else 0
@@ -545,7 +561,7 @@ def startUp():
             draw_rates.append(round((d / total) * 100, 2) if total else 0)
         x_axis = np.arange(len(pairings))
         width = 0.2
-        fig, ax = plt.subplots(figsize=(12,6))
+        fig, ax = plt.subplots(figsize=(12, 6))
         ax.bar(x_axis - width, x_win_rates, width, label='X Win Rate')
         ax.bar(x_axis, o_win_rates, width, label='O Win Rate')
         ax.bar(x_axis + width, draw_rates, width, label='Draw Rate')
@@ -559,7 +575,7 @@ def startUp():
         plt.close()
 
         # 3. Overall Evaluation: Aggregate performance for each algorithm (1-6)
-        overall_metrics = {alg: {"wins":0, "games":0, "time":0, "moves":0} for alg in range(1,7)}
+        overall_metrics = {alg: {"wins": 0, "games": 0, "time": 0, "moves": 0} for alg in range(1, 7)}
         # From vs Default (for algorithms 1-5)
         for choice in range(1, 6):
             algo_name = get_algorithm_name(choice)
@@ -576,7 +592,7 @@ def startUp():
             overall_metrics[6]["moves"] += avg_moves * total
         # From head-to-head among algorithms 1-5
         for i in range(1, 6):
-            for j in range(i+1, 6):
+            for j in range(i + 1, 6):
                 algo_i = get_algorithm_name(i)
                 algo_j = get_algorithm_name(j)
                 if (algo_i, algo_j) in eval_head2head:
@@ -593,7 +609,7 @@ def startUp():
                     overall_metrics[j]["moves"] += avg_moves * total
 
         overall_results = {}
-        for alg in range(1,7):
+        for alg in range(1, 7):
             games = overall_metrics[alg]["games"]
             if games > 0:
                 win_rate = round((overall_metrics[alg]["wins"] / games) * 100, 2)
@@ -622,7 +638,7 @@ def startUp():
 
         x = np.arange(len(algos))
         width = 0.25
-        fig, ax = plt.subplots(figsize=(10,6))
+        fig, ax = plt.subplots(figsize=(10, 6))
         ax.bar(x - width, overall_win_rates, width, label='Win Rate (%)')
         ax.bar(x, overall_avg_times, width, label='Avg Game Time (s)')
         ax.bar(x + width, overall_avg_moves, width, label='Avg Moves')
@@ -633,6 +649,7 @@ def startUp():
         plt.tight_layout()
         plt.savefig("overall_graph.png", bbox_inches='tight')
         plt.close()
+
 
 if __name__ == "__main__":
     startUp()

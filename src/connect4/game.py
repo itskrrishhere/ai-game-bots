@@ -1,7 +1,7 @@
+import ast
 import hashlib
 import json
 import os
-import pickle
 import threading
 
 import numpy as np
@@ -19,7 +19,7 @@ from collections import defaultdict
 CACHE_FILENAME = "minimax_cache.json"
 minimax_cache = {}
 
-
+#Reference - https://github.com/KeithGalli/Connect4-Python/tree/master
 def load_minimax_cache():
     global minimax_cache
     try:
@@ -37,9 +37,6 @@ def delete_minimax_cache():
 
 
 def board_to_key(board):
-    """
-    Convert board to a hashable string key using md5 (as in code2).
-    """
     return hashlib.md5(board.tobytes()).hexdigest()
 
 
@@ -47,16 +44,16 @@ def board_to_key(board):
 # Helper Functions for Connect4
 # ---------------------------
 # Define the trainable configurations
-ql_train_map = {3: 1000, 4: 2000, 5: 3000}
+ql_train_map = {3: 20000, 4: 60000, 5: 100000}
 
 
 def get_algorithm_name(choice):
     algorithm_names = {
         1: "Minimax",
         2: "Minimax+AB",
-        3: "Q-learning (10k episodes)",
-        4: "Q-learning (20k episodes)",
-        5: "Q-learning (30k episodes)",
+        3: "Q-learning (20k episodes)",
+        4: "Q-learning (60k episodes)",
+        5: "Q-learning (100k episodes)",
         6: "Default"
     }
     return algorithm_names.get(choice, "Unknown Algorithm")
@@ -103,9 +100,6 @@ def is_draw(board):
 
 
 def evaluate(board):
-    """
-    Simple board evaluation: +1000 if 'X' has won, -1000 if 'O' has won, else 0.
-    """
     if check_winner(board, 'X'):
         return 1000
     elif check_winner(board, 'O'):
@@ -114,25 +108,15 @@ def evaluate(board):
         return 0
 
 
-def board_to_key(board):
-    # Helper to convert board to hashable key for caching
-    return tuple(map(tuple, board))
-
-
 # ----------------------------------------------------------------
 # Single-call Minimax that returns (score, best_move) in one go
 # ----------------------------------------------------------------
 def minimax_decision(board, player, use_alpha_beta=False, depth_limit=4):
-    """
-    Performs a single minimax (or alpha-beta) search to 'depth_limit',
-    returning the best column for 'player' to play at the top level.
-    This ensures only ONE call per move, rather than multiple calls per valid column.
-    """
     opponent = 'O' if player == 'X' else 'X'
 
-    def minimax_recursive(board, current_player, origin, depth, alpha, beta):
+    def minimax_recursive(rec_board, current_player, origin, depth, alpha, beta):
         # Create a JSON-serializable key using board hash and other parameters
-        board_key = board_to_key(board)
+        board_key = board_to_key(rec_board)
         key_tuple = (board_key, current_player, origin, depth, alpha, beta, use_alpha_beta)
         cache_key = json.dumps(key_tuple)
         if cache_key in minimax_cache:
@@ -140,22 +124,22 @@ def minimax_decision(board, player, use_alpha_beta=False, depth_limit=4):
             return result[0], result[1]
 
         # Terminal checks or depth cutoff
-        if check_winner(board, origin):
+        if check_winner(rec_board, origin):
             val = 1000 - depth  # The earlier 'origin' wins, the better
             minimax_cache[cache_key] = (val, None)
             return val, None
-        elif check_winner(board, opponent):
+        elif check_winner(rec_board, opponent):
             val = -1000 + depth
             minimax_cache[cache_key] = (val, None)
             return val, None
-        elif is_draw(board) or depth == depth_limit:
-            val = evaluate(board)
+        elif is_draw(rec_board) or depth == depth_limit:
+            val = evaluate(rec_board)
             minimax_cache[cache_key] = (val, None)
             return val, None
 
-        valid_moves = get_valid_moves(board)
+        valid_moves = get_valid_moves(rec_board)
         if not valid_moves:
-            val = evaluate(board)
+            val = evaluate(rec_board)
             minimax_cache[cache_key] = (val, None)
             return val, None
 
@@ -165,10 +149,10 @@ def minimax_decision(board, player, use_alpha_beta=False, depth_limit=4):
         if maximizing:
             best_score = -math.inf
             for col in valid_moves:
-                row = get_drop_row(board, col)
+                row = get_drop_row(rec_board, col)
                 if row is None:
                     continue
-                new_board = board.copy()
+                new_board = rec_board.copy()
                 new_board[row, col] = current_player
 
                 score, _ = minimax_recursive(new_board, opponent, origin, depth + 1, alpha, beta)
@@ -182,10 +166,10 @@ def minimax_decision(board, player, use_alpha_beta=False, depth_limit=4):
         else:
             best_score = math.inf
             for col in valid_moves:
-                row = get_drop_row(board, col)
+                row = get_drop_row(rec_board, col)
                 if row is None:
                     continue
-                new_board = board.copy()
+                new_board = rec_board.copy()
                 new_board[row, col] = current_player
 
                 score, _ = minimax_recursive(new_board, origin, origin, depth + 1, alpha, beta)
@@ -225,11 +209,35 @@ class QLearningAgentConnect4:
     def get_state_key(self, board):
         return tuple(map(tuple, board))
 
+    def load_q_table(self, filename="qtable.json"):
+        try:
+            with open(filename, 'r') as f:
+                serialized_qtable = json.load(f)
+
+            # Convert string keys back to (state, action) tuples
+            self.q_table.clear()
+            for key_str, value in serialized_qtable.items():
+                try:
+                    key = ast.literal_eval(key_str)
+                    if isinstance(key, tuple) and len(key) == 2:
+                        self.q_table[key] = value
+                except:
+                    continue  # Skip invalid entries
+
+            print(f"Q-table loaded from {filename}")
+            return True
+
+        except FileNotFoundError:
+            print(f"Q-table file {filename} not found. Starting fresh.")
+            return False
+        except Exception as e:
+            print(f"Error loading Q-table: {str(e)}")
+            return False
+
     def get_q_value(self, state, action):
         return self.q_table.get((state, action), 0.0)
 
     def save_qtable(self, filename="qtable.json"):
-        """Saves the Q-table to a JSON file."""
         try:
             # Convert (state, action) tuples to strings
             serializable_qtable = {
@@ -249,10 +257,6 @@ class QLearningAgentConnect4:
         self.q_table[(state, action)] = new_q
 
     def update_terminal_connect4(self, state, action, terminal_reward):
-        """
-        Applies a terminal update with a terminal reward (e.g., win: +50, loss: -50, draw: 10).
-        As terminal states have no future moves, next_state is set to None.
-        """
         self.update_q_value(state, action, terminal_reward, None)
 
     def get_intermediate_reward(self, board):
@@ -266,66 +270,17 @@ class QLearningAgentConnect4:
         if not valid_moves:
             return None
 
-        if training:
-            for move in valid_moves:
-                temp_board = board.copy()
-                row = get_drop_row(temp_board, move)
-                if row is None:
-                    continue
-                temp_board[row, move] = self.player
-                if check_winner(temp_board, self.player):
-                    return move
-
-            if random.random() < self.epsilon:
-                safe_moves = []
-                for move in valid_moves:
-                    temp_board = board.copy()
-                    row = get_drop_row(temp_board, move)
-                    if row is None:
-                        continue
-                    temp_board[row, move] = self.player
-                    opponent_can_win = False
-                    for opp_move in get_valid_moves(temp_board):
-                        opp_row = get_drop_row(temp_board, opp_move)
-                        if opp_row is None:
-                            continue
-                        temp_opp_board = temp_board.copy()
-                        temp_opp_board[opp_row, opp_move] = self.opponent
-                        if check_winner(temp_opp_board, self.opponent):
-                            opponent_can_win = True
-                            break
-                    if not opponent_can_win:
-                        safe_moves.append(move)
-                if safe_moves:
-                    return random.choice(safe_moves)
-                else:
-                    return random.choice(valid_moves)
-            else:
-                for move in valid_moves:
-                    temp_board = board.copy()
-                    row = get_drop_row(temp_board, move)
-                    if row is not None:
-                        temp_board[row, move] = self.opponent
-                        if check_winner(temp_board, self.opponent):
-                            return move
-                q_values = [(a, self.get_q_value(state, a)) for a in valid_moves]
-                max_q = max(q_values, key=lambda x: x[1])[1] if q_values else 0.0
-                best_actions = [a for a, q in q_values if q == max_q]
-                return random.choice(best_actions) if best_actions else None
+        if training and random.random() < self.epsilon:
+            return random.choice(valid_moves)
         else:
             q_values = [(a, self.get_q_value(state, a)) for a in valid_moves]
             max_q = max(q_values, key=lambda x: x[1])[1] if q_values else 0.0
             best_actions = [a for a, q in q_values if q == max_q]
             final_choice = random.choice(best_actions) if best_actions else None
-            print(f"state:{state}")
-            print(f"valid moves:{valid_moves}")
-            print(f"q_values:{q_values}")
-            print(f"max_q:{max_q}")
-            print(f"final_choice:{final_choice}")
             return final_choice
 
-    def train(self, num_episodes=10000, depth_limit=3):
-        winCount, loseCount = 0, 0
+    def train(self, num_episodes=10000):
+        win_count, lose_count = 0, 0
         for episode in range(num_episodes):
             board = np.full((6, 7), ' ')
             current_player = self.player  # Agent is 'X'
@@ -350,7 +305,7 @@ class QLearningAgentConnect4:
                     # Check if X wins or draws after their move
                     if check_winner(board, self.player):
                         reward = 50
-                        winCount += 1
+                        win_count += 1
                         done = True
                         # Update Q-value for terminal state
                         self.update_q_value(state, action, reward, None)
@@ -382,7 +337,7 @@ class QLearningAgentConnect4:
                     # Check if O wins or draws after their move
                     if check_winner(board, self.opponent):
                         reward = -50
-                        loseCount += 1
+                        lose_count += 1
                         done = True
                         # Update Q-value for X's previous action (led to O's win)
                         if prev_state is not None:
@@ -410,27 +365,28 @@ class QLearningAgentConnect4:
             self.epsilon = max(0.01, self.epsilon * self.decay_factor)
             if (episode + 1) % 1000 == 0:
                 print(f"Q-learning ({self.player}) Episode {episode + 1}/{num_episodes}, Epsilon: {self.epsilon:.4f}")
-                print(f"Win count: {winCount}, Loss count: {loseCount}")
+                print(f"Win count: {win_count}, Loss count: {lose_count}")
 
-        print(f"Final Win count: {winCount}, Loss count: {loseCount}")
+        print(f"Final Win count: {win_count}, Loss count: {lose_count}")
 
 
 # Global cache for Q-learning agents
 q_agent_cache_connect4 = {}
 
 
-def get_best_move_qlearning(board, player, episodes, depth_limit=2):
-    """
-    Returns the Q-Learning agent's best action for 'player'.
-    If not already trained for 'episodes', trains the agent first.
-    """
+def get_best_move_qlearning(board, player, episodes):
     global q_agent_cache_connect4
     key = (player, episodes)
+
     if key not in q_agent_cache_connect4:
-        print(f"Training Q-learning agent for Connect4 as {player} with {episodes} episodes...")
         agent = QLearningAgentConnect4(player)
-        agent.train(num_episodes=episodes, depth_limit=depth_limit)
+        filename = f"Qtrained_{player}_{episodes}"
+        if not agent.load_q_table(filename):  # Try loading first
+            print(f"Training new agent for {player} with {episodes} episodes...")
+            agent.train(num_episodes=episodes)
+            agent.save_qtable(filename)
         q_agent_cache_connect4[key] = agent
+
     return q_agent_cache_connect4[key].choose_action(board, training=False)
 
 
@@ -438,11 +394,6 @@ def get_best_move_qlearning(board, player, episodes, depth_limit=2):
 # Default Opponent for Connect4
 # ---------------------------
 def get_default_move(board, player):
-    """
-    Simple 'default' AI that checks for immediate win or block,
-    otherwise picks a random valid move.
-    """
-    opponent = 'X' if player == 'O' else 'O'
     moves = get_valid_moves(board)
     # Check for winning move
     for move in moves:
@@ -450,13 +401,6 @@ def get_default_move(board, player):
         row = get_drop_row(temp_board, move)
         temp_board[row, move] = player
         if check_winner(temp_board, player):
-            return move
-    # Block opponent's winning move
-    for move in moves:
-        temp_board = board.copy()
-        row = get_drop_row(temp_board, move)
-        temp_board[row, move] = opponent
-        if check_winner(temp_board, opponent):
             return move
     return random.choice(moves) if moves else None
 
@@ -466,9 +410,6 @@ def get_default_move(board, player):
 # ---------------------------
 class Connect4Game:
     def __init__(self, algorithm_x, algorithm_o, animate=True):
-        """
-        algorithm_x, algorithm_o in {1..6} as defined in get_algorithm_name.
-        """
         self.algorithm_x = algorithm_x
         self.algorithm_o = algorithm_o
         self.board = np.full((6, 7), ' ')
@@ -491,13 +432,12 @@ class Connect4Game:
     def play_game(self):
         self.frames.append(self.board.copy())
         self.moves_info.append("Game start")
-        ql_train_map = {3: 1000, 4: 2000, 5: 3000}
 
         while not self.game_over:
             if self.current_player == 'X':
-                move = self.get_move(self.algorithm_x, 'X', ql_train_map)
+                move = self.get_move(self.algorithm_x, 'X')
             else:
-                move = self.get_move(self.algorithm_o, 'O', ql_train_map)
+                move = self.get_move(self.algorithm_o, 'O')
 
             if move is None:
                 # No moves (should not happen unless board is full)
@@ -533,10 +473,7 @@ class Connect4Game:
 
         return self.result
 
-    def get_move(self, algorithm_choice, player, ql_train_map):
-        """
-        Decides which function to call based on the selected algorithm.
-        """
+    def get_move(self, algorithm_choice, player):
         if algorithm_choice == 1:
             # Plain minimax (no alpha-beta), single call
             return minimax_decision(self.board, player, use_alpha_beta=False, depth_limit=4)
@@ -545,7 +482,7 @@ class Connect4Game:
             return minimax_decision(self.board, player, use_alpha_beta=True, depth_limit=4)
         elif algorithm_choice in (3, 4, 5):
             episodes = ql_train_map[algorithm_choice]
-            return get_best_move_qlearning(self.board, player, episodes, depth_limit=1)
+            return get_best_move_qlearning(self.board, player, episodes)
         elif algorithm_choice == 6:
             return get_default_move(self.board, player)
         else:
@@ -634,18 +571,14 @@ def simulate_games(algorithm_x, algorithm_o, num_games=100):
 
 
 def pre_train_qlearning_agents():
-    """
-    Pre-train Q-learning agents for Connect4 as X and O in parallel.
-    """
-
-    def train_agent(player, episodes):
-        key = (player, episodes)
+    def train_agent(player_key, episodes_key):
+        key = (player_key, episodes_key)
         if key not in q_agent_cache_connect4:
-            print(f"Pre-training Q-learning agent for Connect4 as {player}, {episodes} episodes...")
-            agent = QLearningAgentConnect4(player)
-            agent.train(num_episodes=episodes, depth_limit=1)
+            print(f"Pre-training Q-learning agent for Connect4 as {player_key}, {episodes_key} episodes...")
+            agent = QLearningAgentConnect4(player_key)
+            agent.train(num_episodes=episodes_key)
             q_agent_cache_connect4[key] = agent
-            agent.save_qtable(f"Qtrained_{player}_{episodes}")
+            agent.save_qtable(f"Qtrained_{player_key}_{episodes_key}")
 
     # Create and start threads for each (player, episodes) pair
     for choice in (3, 4, 5):
@@ -659,7 +592,6 @@ def pre_train_qlearning_agents():
         for thread in threads:
             thread.join()
 
-
     print("Pre-training of Q-learning agents completed.")
 
 
@@ -672,27 +604,35 @@ def startUp():
     load_minimax_cache()  # Load persistent cache at the start
     if sim_choice == 1:
         print(
-            "Choose algorithm for X (1: Minimax, 2: Minimax+AB, 3: Q-learning (1k), 4: Q-learning (2k), 5: Q-learning (3k), 6: Default):")
+            "Choose algorithm for X (1: Minimax, 2: Minimax+AB, 3: Q-learning (20k), 4: Q-learning (60k), "
+            "5: Q-learning (100k), 6: Default):")
         choice_x = int(input().strip())
         print(
-            "Choose algorithm for O (1: Minimax, 2: Minimax+AB, 3: Q-learning (1k), 4: Q-learning (2k), 5: Q-learning (3k), 6: Default):")
+            "Choose algorithm for O (1: Minimax, 2: Minimax+AB, 3: Q-learning (20k), 4: Q-learning (60k), "
+            "5: Q-learning (100k), 6: Default):")
         choice_o = int(input().strip())
         for choice, player in [(choice_x, 'X'), (choice_o, 'O')]:
             if choice in (3, 4, 5):
-                episodes = ql_train_map[choice]
-                key = (player, episodes)
-                if key not in q_agent_cache_connect4:
-                    print(f"Training Q-learning agent for Connect4 as {player} with {episodes} episodes...")
-                    agent = QLearningAgentConnect4(player)
-                    agent.train(num_episodes=episodes, depth_limit=1)
-                    q_agent_cache_connect4[key] = agent
+                print("Choose (1: train , 2: load trained)")
+                t_choice = int(input().strip())
+                if t_choice == 1:
+                    episodes = ql_train_map[choice]
+                    key = (player, episodes)
+                    if key not in q_agent_cache_connect4:
+                        print(f"Training Q-learning agent for Connect4 as {player} with {episodes} episodes...")
+                        agent = QLearningAgentConnect4(player)
+                        agent.train(num_episodes=episodes)
+                        q_agent_cache_connect4[key] = agent
 
         Connect4Game(choice_x, choice_o, animate=True)
 
     else:
-        pre_train_qlearning_agents()
+        print("Choose (1: train , 2: load trained)")
+        t_choice = int(input().strip())
+        if t_choice == 1:
+            pre_train_qlearning_agents()
 
-        sim_num_games = 1000  # Number of games per pairing
+        sim_num_games = 100  # Number of games per pairing
 
         # 1. Evaluation: Algorithms vs Default Opponent (Algorithm 6)
         eval_vs_default = {}
@@ -719,8 +659,6 @@ def startUp():
         win_rates = [round((eval_vs_default[a][0] / (sum(eval_vs_default[a][:3])) * 100), 2) for a in algos]
         loss_rates = [round((eval_vs_default[a][1] / (sum(eval_vs_default[a][:3])) * 100), 2) for a in algos]
         draw_rates = [round((eval_vs_default[a][2] / (sum(eval_vs_default[a][:3])) * 100), 2) for a in algos]
-        avg_times = [eval_vs_default[a][3] for a in algos]
-        avg_moves = [eval_vs_default[a][4] for a in algos]
 
         x_axis = np.arange(len(algos))
         width = 0.2

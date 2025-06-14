@@ -1,0 +1,11 @@
+Pairing (X vs O),X Wins (%),O Wins (%),Draws (%),Avg Game Time (s),Avg Moves
+Minimax vs Minimax+AB,0.0,100.0,0.0,0.0453,38.00
+Minimax vs Q-learning (20k episodes),99.0,1.0,0.0,0.7737,10.89
+Minimax vs Q-learning (60k episodes),99.0,1.0,0.0,0.6390,10.93
+Minimax vs Q-learning (100k episodes),99.0,1.0,0.0,0.5774,10.27
+Minimax+AB vs Q-learning (20k episodes),98.0,2.0,0.0,0.1720,11.72
+Minimax+AB vs Q-learning (60k episodes),99.0,1.0,0.0,0.1341,10.99
+Minimax+AB vs Q-learning (100k episodes),99.0,1.0,0.0,0.1728,12.11
+Q-learning (20k episodes) vs Q-learning (60k episodes),72.0,28.0,0.0,0.0030,18.30
+Q-learning (20k episodes) vs Q-learning (100k episodes),64.0,35.0,1.0,0.0033,19.98
+Q-learning (60k episodes) vs Q-learning (100k episodes),78.0,22.0,0.0,0.0028,18.62
